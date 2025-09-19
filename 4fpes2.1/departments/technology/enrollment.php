@@ -428,7 +428,7 @@ $tech_programs = [
             if (!dept || !facultySelect) return;
             facultySelect.innerHTML = '';
             try {
-                const res = await fetch(`/4fpes2/api/faculties.php?department=${encodeURIComponent(dept)}`);
+                const res = await fetch(`/4fpes2.1/api/faculties.php?department=${encodeURIComponent(dept)}`);
                 const data = await res.json();
                 facultySelect.innerHTML = '';
                 if (data.success && Array.isArray(data.data)) {
@@ -450,7 +450,7 @@ $tech_programs = [
 
         // Fetch and render subjects for selected faculty
         async function fetchFacultySubjects(facultyUserId) {
-            const res = await fetch(`/4fpes2/api/faculty_subjects.php?faculty_user_id=${encodeURIComponent(facultyUserId)}`);
+            const res = await fetch(`/4fpes2.1/api/faculty_subjects.php?faculty_user_id=${encodeURIComponent(facultyUserId)}`);
             const data = await res.json();
             if (data.success && Array.isArray(data.data)) return data.data;
             return [];

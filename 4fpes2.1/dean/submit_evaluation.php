@@ -20,11 +20,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new Exception('All required fields must be filled');
         }
 
-        // Verify faculty exists
-        $stmt = $pdo->prepare("SELECT id FROM faculty WHERE id = ?");
-        $stmt->execute([$faculty_id]);
+        // Verify faculty exists AND belongs to the dean's department
+        $stmt = $pdo->prepare("SELECT f.id
+                               FROM faculty f
+                               JOIN users u ON f.user_id = u.id
+                               WHERE f.id = ? AND u.department = ?");
+        $stmt->execute([$faculty_id, $_SESSION['department'] ?? '']);
         if (!$stmt->fetch()) {
-            throw new Exception('Invalid faculty selection');
+            throw new Exception('You can only evaluate faculty within your department.');
         }
 
         // Ensure evaluations table supports evaluator metadata

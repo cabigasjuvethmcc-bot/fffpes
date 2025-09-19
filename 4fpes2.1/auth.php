@@ -89,13 +89,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         session_destroy();
         // Always send absolute redirect to avoid subdirectory loops
-        echo json_encode(['success' => true, 'redirect' => '/4fpes2/index.php']);
+        echo json_encode(['success' => true, 'redirect' => '/4fpes2.1/index.php']);
     }
     
     exit();
 }
 
 // If not POST request, redirect to login (absolute path)
-header('Location: /4fpes2/index.php');
+header('Location: /4fpes2.1/index.php');
 exit();
 ?>

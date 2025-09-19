@@ -4,8 +4,12 @@ header('Content-Type: application/json');
 
 // Support both /api/faculties.php?department=Technology and pretty path /api/faculties/Technology
 $department = $_GET['department'] ?? '';
+// If a dean is logged in, always scope to their department regardless of provided param
+if (hasRole('dean')) {
+    $department = $_SESSION['department'] ?? '';
+}
 if (!$department && isset($_SERVER['REQUEST_URI'])) {
-    $uri = $_SERVER['REQUEST_URI']; // e.g., /4fpes2/api/faculties.php or /4fpes2/api/faculties/Technology
+    $uri = $_SERVER['REQUEST_URI']; // e.g., /4fpes2.1/api/faculties.php or /4fpes2.1/api/faculties/Technology
     $parts = explode('/', trim($uri, '/'));
     // Find segment after 'faculties'
     $idx = array_search('faculties', $parts);

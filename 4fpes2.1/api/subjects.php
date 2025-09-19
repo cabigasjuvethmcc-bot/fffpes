@@ -13,6 +13,10 @@ $deptMap = [
 ];
 
 $department = $_GET['department'] ?? '';
+// If a dean is logged in, always scope to their department regardless of provided param
+if (hasRole('dean')) {
+    $department = $_SESSION['department'] ?? '';
+}
 if (!$department && isset($_SERVER['REQUEST_URI'])) {
     $uri = $_SERVER['REQUEST_URI'];
     $parts = explode('/', trim($uri, '/'));

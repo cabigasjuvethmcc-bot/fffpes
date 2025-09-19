@@ -24,7 +24,7 @@ function isLoggedIn() {
 
 function requireLogin() {
     if (!isLoggedIn()) {
-        header('Location: /4fpes2/index.php');
+        header('Location: /4fpes2.1/index.php');
         exit();
     }
 }
@@ -36,7 +36,7 @@ function hasRole($role) {
 function requireRole($role) {
     requireLogin();
     if (!hasRole($role)) {
-        header('Location: /4fpes2/dashboard.php');
+        header('Location: /4fpes2.1/dashboard.php');
         exit();
     }
 }

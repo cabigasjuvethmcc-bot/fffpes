@@ -6,19 +6,23 @@ requireRole('dean');
 $stmt = $pdo->prepare("SELECT u.full_name, u.department FROM users u WHERE u.id = ?");
 $stmt->execute([$_SESSION['user_id']]);
 $dean = $stmt->fetch();
+// Current dean's department for scoping
+$department = $dean['department'] ?? '';
 
-// Get overall statistics
+// Get overall statistics (scoped to dean's department)
 $stmt = $pdo->prepare("SELECT 
                         COUNT(DISTINCT e.id) as total_evaluations,
                         COUNT(DISTINCT e.faculty_id) as evaluated_faculty,
                         COUNT(DISTINCT f.id) as total_faculty,
                         AVG(e.overall_rating) as avg_rating
-                       FROM evaluations e 
-                       RIGHT JOIN faculty f ON e.faculty_id = f.id AND e.status = 'submitted'");
-$stmt->execute();
+                       FROM faculty f
+                       JOIN users u ON f.user_id = u.id
+                       LEFT JOIN evaluations e ON e.faculty_id = f.id AND e.status = 'submitted'
+                       WHERE u.department = ?");
+$stmt->execute([$department]);
 $overall_stats = $stmt->fetch();
 
-// Get faculty performance summary
+// Get faculty performance summary (scoped)
 $stmt = $pdo->prepare("SELECT 
                         f.id, u.full_name, u.department, f.position,
                         COUNT(e.id) as evaluation_count,
@@ -28,12 +32,13 @@ $stmt = $pdo->prepare("SELECT
                        FROM faculty f
                        JOIN users u ON f.user_id = u.id
                        LEFT JOIN evaluations e ON f.id = e.faculty_id AND e.status = 'submitted'
+                       WHERE u.department = ?
                        GROUP BY f.id, u.full_name, u.department, f.position
                        ORDER BY avg_rating DESC");
-$stmt->execute();
+$stmt->execute([$department]);
 $faculty_performance = $stmt->fetchAll();
 
-// Get department-wise statistics
+// Get department-wise statistics (only this dean's department)
 $stmt = $pdo->prepare("SELECT 
                         u.department,
                         COUNT(DISTINCT f.id) as faculty_count,
@@ -42,24 +47,27 @@ $stmt = $pdo->prepare("SELECT
                        FROM faculty f
                        JOIN users u ON f.user_id = u.id
                        LEFT JOIN evaluations e ON f.id = e.faculty_id AND e.status = 'submitted'
+                       WHERE u.department = ?
                        GROUP BY u.department
                        ORDER BY avg_rating DESC");
-$stmt->execute();
+$stmt->execute([$department]);
 $department_stats = $stmt->fetchAll();
 
-// Get evaluation trends by semester
+// Get evaluation trends by semester (scoped)
 $stmt = $pdo->prepare("SELECT 
-                        academic_year, semester,
+                        e.academic_year, e.semester,
                         COUNT(*) as evaluation_count,
-                        AVG(overall_rating) as avg_rating
-                       FROM evaluations 
-                       WHERE status = 'submitted'
-                       GROUP BY academic_year, semester
-                       ORDER BY academic_year DESC, semester");
-$stmt->execute();
+                        AVG(e.overall_rating) as avg_rating
+                       FROM evaluations e
+                       JOIN faculty f ON e.faculty_id = f.id
+                       JOIN users u ON f.user_id = u.id
+                       WHERE e.status = 'submitted' AND u.department = ?
+                       GROUP BY e.academic_year, e.semester
+                       ORDER BY e.academic_year DESC, e.semester");
+$stmt->execute([$department]);
 $semester_trends = $stmt->fetchAll();
 
-// Get top and bottom performing faculty
+// Get top and bottom performing faculty (scoped)
 $stmt = $pdo->prepare("SELECT 
                         u.full_name, u.department, f.position,
                         AVG(e.overall_rating) as avg_rating,
@@ -67,11 +75,12 @@ $stmt = $pdo->prepare("SELECT
                        FROM faculty f
                        JOIN users u ON f.user_id = u.id
                        JOIN evaluations e ON f.id = e.faculty_id AND e.status = 'submitted'
+                       WHERE u.department = ?
                        GROUP BY f.id, u.full_name, u.department, f.position
                        HAVING COUNT(e.id) >= 3
                        ORDER BY avg_rating DESC
                        LIMIT 10");
-$stmt->execute();
+$stmt->execute([$department]);
 $top_performers = $stmt->fetchAll();
 
 $stmt = $pdo->prepare("SELECT 
@@ -81,14 +90,15 @@ $stmt = $pdo->prepare("SELECT
                        FROM faculty f
                        JOIN users u ON f.user_id = u.id
                        JOIN evaluations e ON f.id = e.faculty_id AND e.status = 'submitted'
+                       WHERE u.department = ?
                        GROUP BY f.id, u.full_name, u.department, f.position
                        HAVING COUNT(e.id) >= 3
                        ORDER BY avg_rating ASC
                        LIMIT 5");
-$stmt->execute();
+$stmt->execute([$department]);
 $bottom_performers = $stmt->fetchAll();
 
-// Get criteria performance across all faculty
+// Get criteria performance across all faculty (scoped)
 $stmt = $pdo->prepare("SELECT 
                         ec.category, ec.criterion,
                         AVG(er.rating) as avg_rating,
@@ -96,16 +106,50 @@ $stmt = $pdo->prepare("SELECT
                        FROM evaluation_responses er
                        JOIN evaluation_criteria ec ON er.criterion_id = ec.id
                        JOIN evaluations e ON er.evaluation_id = e.id
-                       WHERE e.status = 'submitted'
+                       JOIN faculty f ON e.faculty_id = f.id
+                       JOIN users u ON f.user_id = u.id
+                       WHERE e.status = 'submitted' AND u.department = ?
                        GROUP BY ec.id, ec.category, ec.criterion
                        ORDER BY ec.category, avg_rating DESC");
-$stmt->execute();
+$stmt->execute([$department]);
 $criteria_performance = $stmt->fetchAll();
 
 // Group criteria by category
 $grouped_criteria = [];
 foreach ($criteria_performance as $criterion) {
     $grouped_criteria[$criterion['category']][] = $criterion;
+}
+
+// Load department-scoped faculty for evaluation form
+$stmt = $pdo->prepare("SELECT f.id AS faculty_id, u.full_name
+                       FROM faculty f
+                       JOIN users u ON f.user_id = u.id
+                       WHERE u.department = ?
+                       ORDER BY u.full_name");
+$stmt->execute([$department]);
+$dept_faculty = $stmt->fetchAll();
+
+// Attempt to load subjects for this department (optional; fallback to manual entry)
+$dept_subjects = [];
+try {
+    $stmt = $pdo->prepare("SELECT code, name FROM subjects WHERE department = ? ORDER BY name");
+    $stmt->execute([$department]);
+    $dept_subjects = $stmt->fetchAll();
+} catch (PDOException $e) {
+    $dept_subjects = [];
+}
+
+// Load criteria list with IDs for the evaluation form
+$criteria_by_category = [];
+try {
+    $stmt = $pdo->prepare("SELECT id, category, criterion FROM evaluation_criteria ORDER BY category, id");
+    $stmt->execute();
+    $rows = $stmt->fetchAll();
+    foreach ($rows as $r) {
+        $criteria_by_category[$r['category']][] = $r;
+    }
+} catch (PDOException $e) {
+    $criteria_by_category = [];
 }
 ?>
 
@@ -239,6 +283,55 @@ foreach ($criteria_performance as $criterion) {
         .export-btn:hover {
             background: var(--secondary-dark);
         }
+
+        /* Evaluation Form Redesign */
+        .section-card {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+        .section-card h3 {
+            margin: 0 0 0.75rem 0;
+            color: var(--primary-color);
+        }
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(240px, 1fr));
+            gap: 1rem 1.25rem;
+        }
+        @media (max-width: 768px) {
+            .form-grid { grid-template-columns: 1fr; }
+            .submit-btn { width: 100%; }
+        }
+        .form-control label { display: block; font-weight: 600; margin-bottom: 0.35rem; }
+        .form-control select,
+        .form-control input[type="text"],
+        .form-control textarea { width: 100%; padding: 0.6rem 0.7rem; border: 1px solid #e1e5e9; border-radius: 8px; }
+
+        .criteria-card { background: #fff; border-radius: 12px; box-shadow: var(--card-shadow); padding: 1rem; }
+        .criteria-group { margin-bottom: 1rem; }
+        .criteria-group h4 { margin: 0 0 0.5rem 0; color: var(--primary-color); }
+        .criterion-row { display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid #f0f2f4; }
+        .criterion-row:last-child { border-bottom: none; }
+        .rating-group { display: flex; gap: 0.75rem; align-items: center; }
+        .rating-group label { display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 500; }
+        .criterion-comment { margin-top: 0.5rem; }
+        .criterion-comment input { width: 100%; padding: 0.45rem 0.6rem; border: 1px solid #e1e5e9; border-radius: 6px; }
+
+        .submit-btn {
+            background: #2ecc71; /* green */
+            color: #fff;
+            padding: 0.9rem 1.25rem;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        .submit-btn:hover { background: #27ae60; }
+        .muted-note { color: #6b7280; font-size: 0.9rem; margin-top: 0.5rem; }
     </style>
 </head>
 <body>
@@ -250,6 +343,7 @@ foreach ($criteria_performance as $criterion) {
             <a href="#" onclick="showSection('departments')">Department Analytics</a>
             <a href="#" onclick="showSection('trends')">Trends & Reports</a>
             <a href="#" onclick="showSection('criteria')">Criteria Analysis</a>
+            <a href="#" onclick="showSection('evaluate')">Evaluate Faculty</a>
             <button class="logout-btn" onclick="logout()">Logout</button>
         </div>
 
@@ -551,6 +645,105 @@ foreach ($criteria_performance as $criterion) {
                     <?php endforeach; ?>
                 </div>
             </div>
+
+            <!-- Evaluate Faculty Section -->
+            <div id="evaluate-section" class="content-section" style="display: none;">
+                <h2>Evaluate Faculty (<?php echo htmlspecialchars($dean['department']); ?> Department)</h2>
+                <form id="dean-eval-form">
+                    <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
+
+                    <!-- Faculty & Subject Selection -->
+                    <div class="section-card">
+                        <h3>Faculty & Subject Selection</h3>
+                        <div class="form-grid">
+                            <div class="form-control">
+                                <label for="faculty_id">Faculty</label>
+                                <select name="faculty_id" id="faculty_id" required>
+                                    <option value="">-- Select Faculty --</option>
+                                    <?php foreach ($dept_faculty as $f): ?>
+                                        <option value="<?php echo (int)$f['faculty_id']; ?>"><?php echo htmlspecialchars($f['full_name']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="form-control">
+                                <label for="subject">Subject</label>
+                                <?php if (!empty($dept_subjects)): ?>
+                                    <select name="subject" id="subject" required>
+                                        <option value="">-- Select Subject --</option>
+                                        <?php foreach ($dept_subjects as $s): ?>
+                                            <option value="<?php echo htmlspecialchars(($s['code'] ? $s['code'].' - ' : '').$s['name']); ?>">
+                                                <?php echo htmlspecialchars(($s['code'] ? $s['code'].' - ' : '').$s['name']); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                <?php else: ?>
+                                    <input type="text" name="subject" id="subject" placeholder="Enter subject" required />
+                                <?php endif; ?>
+                            </div>
+                            <div class="form-control">
+                                <label for="semester">Semester</label>
+                                <select name="semester" id="semester" required>
+                                    <option value="">-- Select Semester --</option>
+                                    <option value="1st">1st</option>
+                                    <option value="2nd">2nd</option>
+                                    <option value="Summer">Summer</option>
+                                </select>
+                            </div>
+                            <div class="form-control">
+                                <label for="academic_year">Academic Year</label>
+                                <input type="text" name="academic_year" id="academic_year" placeholder="e.g., 2025-2026" required />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Evaluation Criteria -->
+                    <div class="section-card">
+                        <h3>Evaluation Criteria</h3>
+                        <div class="criteria-card">
+                            <?php if (empty($criteria_by_category)): ?>
+                                <p>No evaluation criteria configured yet.</p>
+                            <?php else: ?>
+                                <?php foreach ($criteria_by_category as $cat => $items): ?>
+                                    <div class="criteria-group">
+                                        <h4><?php echo htmlspecialchars($cat); ?></h4>
+                                        <?php foreach ($items as $ci): ?>
+                                            <div class="criterion-row">
+                                                <div class="criterion-text"><?php echo htmlspecialchars($ci['criterion']); ?></div>
+                                                <div class="rating-group" role="group" aria-label="Rating for criterion">
+                                                    <?php for ($r=1; $r<=5; $r++): ?>
+                                                        <label>
+                                                            <input type="radio" name="rating_<?php echo (int)$ci['id']; ?>" value="<?php echo $r; ?>" required /> <?php echo $r; ?>
+                                                        </label>
+                                                    <?php endfor; ?>
+                                                </div>
+                                            </div>
+                                            <div class="criterion-comment">
+                                                <input type="text" name="comment_<?php echo (int)$ci['id']; ?>" placeholder="Optional comment for this criterion" />
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <!-- Overall Comments -->
+                    <div class="section-card">
+                        <h3>Overall Comments</h3>
+                        <div class="form-control">
+                            <label for="overall_comments" class="sr-only">Overall Comments</label>
+                            <textarea name="overall_comments" id="overall_comments" rows="4" placeholder="Write your overall feedback (optional)..."></textarea>
+                        </div>
+                    </div>
+
+                    <div class="section-card" style="display:flex; align-items:center; justify-content: space-between; gap: 1rem;">
+                        <button type="submit" class="submit-btn">Submit Evaluation</button>
+                        <p id="eval-status" class="muted-note" style="margin: 0;"></p>
+                    </div>
+
+                    <p class="muted-note">Dean evaluations are anonymous and flagged as Dean evaluations.</p>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -622,6 +815,38 @@ foreach ($criteria_performance as $criterion) {
 
         function generateReport() {
             alert('Report generation functionality would be implemented here');
+        }
+
+        // Handle dean evaluation form submit
+        const deanEvalForm = document.getElementById('dean-eval-form');
+        if (deanEvalForm) {
+            deanEvalForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const formData = new FormData(deanEvalForm);
+                const statusEl = document.getElementById('eval-status');
+                statusEl.textContent = 'Submitting...';
+                statusEl.style.color = '';
+
+                fetch('submit_evaluation.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        statusEl.textContent = data.message || 'Evaluation submitted.';
+                        statusEl.style.color = 'var(--secondary-color)';
+                        deanEvalForm.reset();
+                    } else {
+                        statusEl.textContent = data.message || 'Submission failed.';
+                        statusEl.style.color = 'var(--danger-color)';
+                    }
+                })
+                .catch(err => {
+                    statusEl.textContent = 'An error occurred while submitting.';
+                    statusEl.style.color = 'var(--danger-color)';
+                });
+            });
         }
 
         // Initialize charts
