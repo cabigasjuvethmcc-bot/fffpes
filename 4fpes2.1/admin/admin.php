@@ -508,9 +508,10 @@ foreach ($criteria as $criterion) {
                     </select>
                 </div>
 
-                <div class="form-group">
-                    <label for="username">Username:</label>
+                <div class="form-group" id="usernameGroup">
+                    <label for="username" id="usernameLabel">Username:</label>
                     <input type="text" id="username" name="username" required>
+                    <small id="usernameHelp" style="color:#666; display:block; margin-top:6px;"></small>
                 </div>
 
                 <div class="form-group">
@@ -767,7 +768,12 @@ foreach ($criteria as $criterion) {
             const sections = document.querySelectorAll('.content-section');
             sections.forEach(section => {
                 section.style.display = 'none';
-            });
+                // Initialize role-based visibility for Add User modal on load
+            if (typeof toggleRoleFields === 'function') {
+                toggleRoleFields();
+            }
+
+        });
             
             const targetSection = document.getElementById(sectionName + '-section');
             if (targetSection) {
@@ -1325,6 +1331,29 @@ foreach ($criteria as $criterion) {
                 } else {
                     row.style.display = 'none';
                 }
+            }
+        }
+
+        // Toggle fields based on selected role in Add User modal
+        function toggleRoleFields() {
+            const roleSel = document.getElementById('role');
+            const usernameGroup = document.getElementById('usernameGroup');
+            const usernameInput = document.getElementById('username');
+            const facultyFields = document.getElementById('facultyFields');
+            const studentFields = document.getElementById('studentFields');
+
+            if (!roleSel) return;
+            const role = roleSel.value;
+
+            if (facultyFields) facultyFields.style.display = (role === 'faculty') ? 'block' : 'none';
+            if (studentFields) studentFields.style.display = (role === 'student') ? 'block' : 'none';
+
+            if (role === 'student' || role === 'faculty' || role === 'dean') {
+                if (usernameGroup) usernameGroup.style.display = 'none';
+                if (usernameInput) usernameInput.required = false;
+            } else {
+                if (usernameGroup) usernameGroup.style.display = 'block';
+                if (usernameInput) usernameInput.required = true;
             }
         }
 

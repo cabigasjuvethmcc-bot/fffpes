@@ -25,8 +25,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                        LEFT JOIN students s ON u.id = s.user_id 
                                        WHERE s.student_id = ? AND u.role = ?");
                 $stmt->execute([$username, $role]);
+            } elseif ($role === 'faculty') {
+                // Employees (Faculty): match by Employee ID
+                $stmt = $pdo->prepare("SELECT u.*, f.id as faculty_id, s.id as student_id 
+                                       FROM users u 
+                                       INNER JOIN faculty f ON u.id = f.user_id 
+                                       LEFT JOIN students s ON u.id = s.user_id 
+                                       WHERE f.employee_id = ? AND u.role = ?");
+                $stmt->execute([$username, $role]);
+            } elseif ($role === 'dean') {
+                // Employees (Deans): match by Employee ID in deans table
+                $stmt = $pdo->prepare("SELECT u.*, f.id as faculty_id, s.id as student_id 
+                                       FROM users u 
+                                       LEFT JOIN faculty f ON u.id = f.user_id 
+                                       LEFT JOIN students s ON u.id = s.user_id 
+                                       INNER JOIN deans d ON u.id = d.user_id 
+                                       WHERE d.employee_id = ? AND u.role = ?");
+                $stmt->execute([$username, $role]);
             } else {
-                // Other roles continue to use username
+                // Admins keep using username
                 $stmt = $pdo->prepare("SELECT u.*, f.id as faculty_id, s.id as student_id 
                                        FROM users u 
                                        LEFT JOIN faculty f ON u.id = f.user_id 

@@ -8,6 +8,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (roleSel.value === 'student') {
       userLabel.textContent = 'Student ID:';
       userInput.placeholder = 'Enter your Student ID';
+    } else if (roleSel.value === 'faculty' || roleSel.value === 'dean') {
+      userLabel.textContent = 'Employee ID:';
+      userInput.placeholder = 'Enter your Employee ID (e.g., F-001 / D-001)';
     } else {
       userLabel.textContent = 'Username:';
       userInput.placeholder = 'Enter your username';

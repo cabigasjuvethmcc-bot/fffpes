@@ -32,12 +32,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $department = $deptMap[$department];
             }
             
-            // For students, username is auto-set to the generated Student ID (do not require manual username)
-            if ($role === 'student') {
+            // For Students, username is auto-set to Student ID;
+            // For Faculty/Dean, username will be auto-set to Employee ID.
+            if ($role === 'student' || $role === 'faculty' || $role === 'dean') {
                 if (!$password || !$role || !$full_name || !$department) {
                     throw new Exception('All required fields must be filled');
                 }
             } else {
+                // Admins still require a manual username
                 if (!$username || !$password || !$role || !$full_name || !$department) {
                     throw new Exception('All required fields must be filled');
                 }
@@ -47,7 +49,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Invalid role selected');
             }
             
-            // Check if username already exists (skip check for students; their username will be auto-set to Student ID)
+            // Helper to generate next Employee ID per role using the employees table (Faculty: F-###, Dean: D-###)
+            $generateEmployeeId = function(PDO $pdo, string $role): string {
+                $roleMap = [
+                    'faculty' => ['prefix' => 'F-', 'enum' => 'Faculty'],
+                    'dean'    => ['prefix' => 'D-', 'enum' => 'Dean'],
+                ];
+                if (!isset($roleMap[$role])) {
+                    throw new Exception('Unsupported role for employee ID generation');
+                }
+                $prefix = $roleMap[$role]['prefix'];
+                $enumRole = $roleMap[$role]['enum'];
+                $stmt = $pdo->prepare("SELECT MAX(CAST(SUBSTRING(employee_id, 3) AS UNSIGNED)) AS max_seq FROM employees WHERE role = ? AND employee_id LIKE CONCAT(?, '%')");
+                $stmt->execute([$enumRole, $prefix]);
+                $row = $stmt->fetch();
+                $next = (int)($row['max_seq'] ?? 0) + 1;
+                return sprintf('%s%03d', $prefix, $next);
+            };
+
+            // Pre-generate IDs for roles that auto-derive username
+            $pre_employee_id = null;
+            if ($role === 'faculty' || $role === 'dean') {
+                // Generate once here and reuse; also use as username
+                // Minimal retry strategy to avoid collision with concurrent inserts
+                $attemptsGen = 0;
+                while (true) {
+                    try {
+                        $pre_employee_id = $generateEmployeeId($pdo, $role);
+                        break;
+                    } catch (Exception $eGen) {
+                        if ($attemptsGen < 2) { $attemptsGen++; continue; }
+                        throw $eGen;
+                    }
+                }
+                $username = $pre_employee_id;
+            }
+
+            // Check if username already exists
+            // Skip for students (set later), otherwise ensure uniqueness of provided/auto username
             if ($role !== 'student') {
                 $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
                 $stmt->execute([$username]);
@@ -136,23 +175,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } catch (PDOException $e2) { /* ignore if already exists */ }
             }
 
-            // Helper to generate next Employee ID per role using the employees table (Faculty: F-###, Dean: D-###)
-            $generateEmployeeId = function(PDO $pdo, string $role): string {
-                $roleMap = [
-                    'faculty' => ['prefix' => 'F-', 'enum' => 'Faculty'],
-                    'dean'    => ['prefix' => 'D-', 'enum' => 'Dean'],
-                ];
-                if (!isset($roleMap[$role])) {
-                    throw new Exception('Unsupported role for employee ID generation');
-                }
-                $prefix = $roleMap[$role]['prefix'];
-                $enumRole = $roleMap[$role]['enum'];
-                $stmt = $pdo->prepare("SELECT MAX(CAST(SUBSTRING(employee_id, 3) AS UNSIGNED)) AS max_seq FROM employees WHERE role = ? AND employee_id LIKE CONCAT(?, '%')");
-                $stmt->execute([$enumRole, $prefix]);
-                $row = $stmt->fetch();
-                $next = (int)($row['max_seq'] ?? 0) + 1;
-                return sprintf('%s%03d', $prefix, $next);
-            };
+            // Note: $generateEmployeeId moved above to allow pre-generation before insert
 
             // Start transaction
             $pdo->beginTransaction();
@@ -175,7 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $username = $pre_student_id;
             }
 
-            // Insert user (for students, username equals pre-generated Student ID)
+            // Insert user
             $stmt = $pdo->prepare("INSERT INTO users (username, password, role, full_name, email, department) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([$username, $hashed_password, $role, $full_name, $email, $department]);
 
@@ -186,22 +209,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $position = sanitizeInput($_POST['position'] ?? '');
                 $hire_date = $_POST['hire_date'] ?? null;
 
-                // Auto-generate Employee ID with minimal retry in case of race
-                $attempts = 0;
-                while (true) {
-                    try {
-                        $employee_id = $generateEmployeeId($pdo, 'faculty');
-                        $stmt = $pdo->prepare("INSERT INTO faculty (user_id, employee_id, position, hire_date) VALUES (?, ?, ?, ?)");
-                        $stmt->execute([$user_id, $employee_id, $position, $hire_date]);
-                        break;
-                    } catch (PDOException $ie) {
-                        if ($ie->getCode() == 23000 && $attempts < 3) { // duplicate key, regenerate
-                            $attempts++;
-                            continue;
-                        }
-                        throw $ie;
-                    }
-                }
+                // Use pre-generated Employee ID (also used as username)
+                $employee_id = $pre_employee_id;
+                $stmt = $pdo->prepare("INSERT INTO faculty (user_id, employee_id, position, hire_date) VALUES (?, ?, ?, ?)");
+                $stmt->execute([$user_id, $employee_id, $position, $hire_date]);
 
                 // Store selected subjects (if any), but validate strictly against allowed list from DB
                 $subjects = $_POST['subjects'] ?? [];
@@ -274,22 +285,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $empIns->execute([$employee_id, $full_name, $deptCode, $empRole, $subjectAssigned, $email ?: null, $hashed_password]);
                 
             } elseif ($role === 'dean') {
-                // Auto-generate Dean Employee ID and insert into `deans` table
-                $attempts = 0;
-                while (true) {
-                    try {
-                        $employee_id = $generateEmployeeId($pdo, 'dean');
-                        $stmt = $pdo->prepare("INSERT INTO deans (user_id, employee_id) VALUES (?, ?)");
-                        $stmt->execute([$user_id, $employee_id]);
-                        break;
-                    } catch (PDOException $ie) {
-                        if ($ie->getCode() == 23000 && $attempts < 3) { // duplicate key, regenerate
-                            $attempts++;
-                            continue;
-                        }
-                        throw $ie;
-                    }
-                }
+                // Use pre-generated Employee ID (also used as username)
+                $employee_id = $pre_employee_id;
+                $stmt = $pdo->prepare("INSERT INTO deans (user_id, employee_id) VALUES (?, ?)");
+                $stmt->execute([$user_id, $employee_id]);
 
                 // Also register into employees table
                 $deptCodeMap = [
