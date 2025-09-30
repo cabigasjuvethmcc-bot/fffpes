@@ -31,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
     if ($action === 'enroll_student') {
-        $username = sanitizeInput($_POST['username'] ?? '');
+        // Username will be auto-set to the generated Student ID
         $password = $_POST['password'] ?? '';
         $full_name = sanitizeInput($_POST['full_name'] ?? '');
         $email = sanitizeInput($_POST['email'] ?? '');
@@ -51,7 +51,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (is_array($decoded)) { $faculty_subjects_map = $decoded; }
         }
         
-        if (empty($username) || empty($password) || empty($full_name) || empty($gender)) {
+        // Username is no longer provided manually; it will be set to Student ID
+        if (empty($password) || empty($full_name) || empty($gender)) {
             $error = 'All required fields must be filled';
         } else {
             // Validate assigned faculty belongs to the selected department (if provided)
@@ -105,31 +106,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     $pdo->beginTransaction();
 
+                    // Generate Student ID first so it can be used as the username
+                    $new_student_id = $generateStudentId($pdo, $gender);
+
                     // Hash password
                     $hashed_password = password_hash($password, PASSWORD_DEFAULT);
 
-                    // Insert user in selected department
+                    // Insert user with username equal to Student ID
                     $stmt = $pdo->prepare("INSERT INTO users (username, password, role, full_name, email, department) VALUES (?, ?, 'student', ?, ?, ?)");
-                    $stmt->execute([$username, $hashed_password, $full_name, $email, $selected_department]);
+                    $stmt->execute([$new_student_id, $hashed_password, $full_name, $email, $selected_department]);
                     $user_id = $pdo->lastInsertId();
 
-                    // Generate gender-based unique Student ID (with minimal retry if unique violation happens)
-                    $new_student_id = $generateStudentId($pdo, $gender);
-                    $attempts = 0;
-                    while (true) {
-                        try {
-                            $stmt = $pdo->prepare("INSERT INTO students (user_id, student_id, year_level, program, gender) VALUES (?, ?, ?, ?, ?)");
-                            $stmt->execute([$user_id, $new_student_id, $year_level, $program, $gender]);
-                            break;
-                        } catch (PDOException $ie) {
-                            if ($ie->getCode() == 23000 && $attempts < 3) { // duplicate key, regenerate
-                                $new_student_id = $generateStudentId($pdo, $gender);
-                                $attempts++;
-                                continue;
-                            }
-                            throw $ie;
-                        }
-                    }
+                    // Insert student record using the same Student ID
+                    $stmt = $pdo->prepare("INSERT INTO students (user_id, student_id, year_level, program, gender) VALUES (?, ?, ?, ?, ?)");
+                    $stmt->execute([$user_id, $new_student_id, $year_level, $program, $gender]);
 
                     // Junction table creation already ensured before transaction
 
@@ -161,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $pdo->rollBack();
                     }
                     if ($e->getCode() == 23000) {
-                        $error = 'Username already exists or conflict while generating Student ID';
+                        $error = 'Conflict while creating user/student ID. Please try again.';
                     } else {
                         $error = 'Database error: ' . $e->getMessage();
                     }
@@ -289,15 +279,9 @@ $tech_programs = [
                     <form method="POST" style="display: grid; gap: 25px;">
                         <input type="hidden" name="action" value="enroll_student">
                         
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                            <div>
-                                <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--tech-dark);">Username *</label>
-                                <input type="text" name="username" class="tech-input" required>
-                            </div>
-                            <div>
-                                <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--tech-dark);">Password *</label>
-                                <input type="password" name="password" class="tech-input" required>
-                            </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--tech-dark);">Password *</label>
+                            <input type="password" name="password" class="tech-input" required>
                         </div>
 
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">

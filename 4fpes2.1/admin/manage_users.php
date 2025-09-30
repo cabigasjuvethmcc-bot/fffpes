@@ -32,19 +32,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $department = $deptMap[$department];
             }
             
-            if (!$username || !$password || !$role || !$full_name || !$department) {
-                throw new Exception('All required fields must be filled');
+            // For students, username is auto-set to the generated Student ID (do not require manual username)
+            if ($role === 'student') {
+                if (!$password || !$role || !$full_name || !$department) {
+                    throw new Exception('All required fields must be filled');
+                }
+            } else {
+                if (!$username || !$password || !$role || !$full_name || !$department) {
+                    throw new Exception('All required fields must be filled');
+                }
             }
             
             if (!in_array($role, ['student', 'faculty', 'dean', 'admin'])) {
                 throw new Exception('Invalid role selected');
             }
             
-            // Check if username already exists
-            $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
-            $stmt->execute([$username]);
-            if ($stmt->fetch()) {
-                throw new Exception('Username already exists');
+            // Check if username already exists (skip check for students; their username will be auto-set to Student ID)
+            if ($role !== 'student') {
+                $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
+                $stmt->execute([$username]);
+                if ($stmt->fetch()) {
+                    throw new Exception('Username already exists');
+                }
             }
             
             // Additional role-based required fields
@@ -147,11 +156,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // Start transaction
             $pdo->beginTransaction();
-            
-            // Insert user
+
+            // If role is student, pre-generate Student ID to use as username
+            $pre_student_id = null;
+            if ($role === 'student') {
+                // Helper (local) to generate next Student ID by gender will be re-used below; here we compute early
+                $gender = sanitizeInput($_POST['gender'] ?? '');
+                if (!in_array($gender, ['Male','Female'], true)) {
+                    throw new Exception('Gender is required for students');
+                }
+                $prefix = ($gender === 'Male') ? '222' : '221';
+                $stmt = $pdo->prepare("SELECT MAX(CAST(RIGHT(student_id, 3) AS UNSIGNED)) AS max_seq FROM students WHERE student_id LIKE CONCAT(?, '-%')");
+                $stmt->execute([$prefix]);
+                $row = $stmt->fetch();
+                $next = (int)($row['max_seq'] ?? 0) + 1;
+                $pre_student_id = sprintf('%s-%03d', $prefix, $next);
+                // Override username with the pre-generated Student ID
+                $username = $pre_student_id;
+            }
+
+            // Insert user (for students, username equals pre-generated Student ID)
             $stmt = $pdo->prepare("INSERT INTO users (username, password, role, full_name, email, department) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([$username, $hashed_password, $role, $full_name, $email, $department]);
-            
+
             $user_id = $pdo->lastInsertId();
             
             // Insert role-specific data
@@ -301,33 +328,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new Exception('Gender is required for students');
                 }
 
-                // Helper to generate next Student ID by gender (global per gender)
-                $generateStudentId = function(PDO $pdo, string $gender): string {
-                    $prefix = ($gender === 'Male') ? '222' : '221';
-                    $stmt = $pdo->prepare("SELECT MAX(CAST(RIGHT(student_id, 3) AS UNSIGNED)) AS max_seq FROM students WHERE student_id LIKE CONCAT(?, '-%')");
-                    $stmt->execute([$prefix]);
-                    $row = $stmt->fetch();
-                    $next = (int)($row['max_seq'] ?? 0) + 1;
-                    return sprintf('%s-%03d', $prefix, $next);
-                };
+                // Use the pre-generated Student ID as both student_id and the user's username
+                $new_student_id = $pre_student_id ?: $username;
 
-                // Generate and insert with minimal retry if unique conflict occurs
-                $new_student_id = $generateStudentId($pdo, $gender);
-                $attempts = 0;
-                while (true) {
-                    try {
-                        $stmt = $pdo->prepare("INSERT INTO students (user_id, student_id, year_level, program, gender) VALUES (?, ?, ?, ?, ?)");
-                        $stmt->execute([$user_id, $new_student_id, $year_level, $program, $gender]);
-                        break;
-                    } catch (PDOException $ie) {
-                        if ($ie->getCode() == 23000 && $attempts < 3) { // duplicate key, regenerate
-                            $new_student_id = $generateStudentId($pdo, $gender);
-                            $attempts++;
-                            continue;
-                        }
-                        throw $ie;
-                    }
-                }
+                // Insert student record
+                $stmt = $pdo->prepare("INSERT INTO students (user_id, student_id, year_level, program, gender) VALUES (?, ?, ?, ?, ?)");
+                $stmt->execute([$user_id, $new_student_id, $year_level, $program, $gender]);
             }
             
             $pdo->commit();

@@ -57,7 +57,7 @@ if (isLoggedIn()) {
         <p><strong>Business Dept Admin:</strong> bus_admin / password (Role: Department Admin)</p>
         <p><strong>Dean:</strong> dean01 / password (Role: Dean)</p>
         <p><strong>Faculty:</strong> faculty01 / password (Role: Faculty)</p>
-        <p><strong>Student:</strong> student01 / password (Role: Student)</p>
+        <p><strong>Student:</strong> STU001 / password (Role: Student)</p>
       </div>
     </div>
   </div>

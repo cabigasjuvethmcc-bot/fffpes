@@ -290,7 +290,7 @@ foreach ($criteria as $criterion) {
             <a href="#" onclick="showSection('overview')">System Overview</a>
             <a href="#" onclick="showSection('users')">User Management</a>
             <a href="#" onclick="showSection('criteria')">Evaluation Criteria</a>
-            <a href="manage_subjects.php">Manage Subjects</a>
+            <!-- Manage Subjects removed: handled by Department Admin -->
             <a href="#" onclick="showSection('reports')">System Reports</a>
             <a href="#" onclick="showSection('settings')">Settings</a>
             <button class="logout-btn" onclick="logout()">Logout</button>
@@ -831,6 +831,22 @@ foreach ($criteria as $criterion) {
             });
         }
 
+        function toggleUsernameVisibility(show) {
+            const usernameGroup = document.querySelector('#addUserForm .form-group label[for="username"]')?.parentElement;
+            const usernameInput = document.getElementById('username');
+            if (!usernameGroup || !usernameInput) return;
+            usernameGroup.style.display = show ? 'block' : 'none';
+            if (!show) {
+                // Do not require username when hidden
+                usernameInput.dataset.wasRequired = usernameInput.required ? '1' : '0';
+                usernameInput.required = false;
+            } else {
+                if (usernameInput.dataset.wasRequired === '1') {
+                    usernameInput.required = true;
+                }
+            }
+        }
+
         function toggleRoleFields() {
             const role = document.getElementById('role').value;
             const facultyFields = document.getElementById('facultyFields');
@@ -856,6 +872,8 @@ foreach ($criteria as $criterion) {
                 const deptSel = document.getElementById('department');
                 if (deptSel) populateProgramOptions(deptSel.value);
             }
+            // Hide username for students (ID auto-generated)
+            toggleUsernameVisibility(!showStudent);
         }
 
         // Department-specific program lists (mirrors department admin pages)

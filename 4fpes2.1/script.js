@@ -1,4 +1,26 @@
 document.addEventListener("DOMContentLoaded", () => {
+  // Dynamically switch username label based on selected role
+  function updateLoginIdentityLabel() {
+    const roleSel = document.getElementById("role");
+    const userInput = document.getElementById("username");
+    const userLabel = document.querySelector("label[for='username']");
+    if (!roleSel || !userInput || !userLabel) return;
+    if (roleSel.value === 'student') {
+      userLabel.textContent = 'Student ID:';
+      userInput.placeholder = 'Enter your Student ID';
+    } else {
+      userLabel.textContent = 'Username:';
+      userInput.placeholder = 'Enter your username';
+    }
+  }
+
+  const roleSel = document.getElementById("role");
+  if (roleSel) {
+    roleSel.addEventListener('change', updateLoginIdentityLabel);
+    // Initialize on load
+    updateLoginIdentityLabel();
+  }
+
   document.getElementById("login-form").addEventListener("submit", function(e) {
     e.preventDefault();
     

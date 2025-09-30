@@ -5,6 +5,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
     if ($action === 'login') {
+        // For students, this field will contain the Student ID
         $username = sanitizeInput($_POST['username'] ?? '');
         $password = $_POST['password'] ?? '';
         $role = sanitizeInput($_POST['role'] ?? '');
@@ -16,12 +17,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         try {
             // First try database authentication
-            $stmt = $pdo->prepare("SELECT u.*, f.id as faculty_id, s.id as student_id 
-                                   FROM users u 
-                                   LEFT JOIN faculty f ON u.id = f.user_id 
-                                   LEFT JOIN students s ON u.id = s.user_id 
-                                   WHERE u.username = ? AND u.role = ?");
-            $stmt->execute([$username, $role]);
+            if ($role === 'student') {
+                // Match by Student ID for students
+                $stmt = $pdo->prepare("SELECT u.*, f.id as faculty_id, s.id as student_id 
+                                       FROM users u 
+                                       LEFT JOIN faculty f ON u.id = f.user_id 
+                                       LEFT JOIN students s ON u.id = s.user_id 
+                                       WHERE s.student_id = ? AND u.role = ?");
+                $stmt->execute([$username, $role]);
+            } else {
+                // Other roles continue to use username
+                $stmt = $pdo->prepare("SELECT u.*, f.id as faculty_id, s.id as student_id 
+                                       FROM users u 
+                                       LEFT JOIN faculty f ON u.id = f.user_id 
+                                       LEFT JOIN students s ON u.id = s.user_id 
+                                       WHERE u.username = ? AND u.role = ?");
+                $stmt->execute([$username, $role]);
+            }
             $user = $stmt->fetch();
             
             $authenticated = false;
@@ -51,7 +63,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                       ($role === 'department_admin' && $json_user['role'] === 'admin' && 
                                        in_array($json_user['department'] ?? '', ['Technology', 'Education', 'Business']));
                     
-                    if ($json_user['username'] === $username && 
+                    // For students in JSON fallback, treat username as their student identifier
+                    $json_identifier = $json_user['username'];
+                    if ($json_identifier === $username && 
                         $user_role_match && 
                         $json_user['password'] === $password) {
                         

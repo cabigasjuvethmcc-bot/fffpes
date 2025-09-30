@@ -2,6 +2,10 @@
 require_once '../config.php';
 requireRole('admin');
 
+// This feature has been removed from System Admin. Subject management is now handled in the Department Admin area.
+http_response_code(404);
+exit('Not Found');
+
 // Ensure subjects table exists
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS subjects (
