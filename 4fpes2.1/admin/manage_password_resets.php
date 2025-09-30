@@ -90,28 +90,28 @@ $__req_count = is_array($requests) ? count($requests) : (is_object($requests) ? 
     .back-link { text-decoration:none; }
     .table { width:100%; border-collapse: collapse; background:#fff; border-radius:12px; overflow:hidden; box-shadow: var(--card-shadow); border:1px solid #e5e7eb; }
     .table th, .table td { padding: 0.85rem 1rem; border-bottom: 1px solid #e1e5e9; text-align:left; }
-    .table th { background: var(--bg-color); font-weight:600; }
     .badge { padding:4px 10px; border-radius:14px; font-size:0.85rem; }
     .badge-pending { background:#ffe9c4; color:#7a4b00; }
     .badge-resolved { background:#daf5d9; color:#0f6b1b; }
   </style>
 </head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h2>Password Reset Requests</h2>
-      <div>
-        <a class="back-link" href="admin.php">← Back to Admin Dashboard</a>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h2>Password Reset Requests</h2>
+        <div>
+          <a class="back-link" href="admin.php">← Back to Admin Dashboard</a>
+        </div>
       </div>
-    </div>
 
-    <table class="table">
+      
+
+      <table class="table">
       <thead>
         <tr>
           <th>ID</th>
           <th>Identifier</th>
           <th>Role</th>
-          <th>Requested At</th>
           <th>Status</th>
           <th>Actions</th>
         </tr>

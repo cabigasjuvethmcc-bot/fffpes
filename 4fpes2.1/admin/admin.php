@@ -547,6 +547,7 @@ foreach ($criteria as $criterion) {
                 <div class="form-group">
                     <label for="full_name">Full Name:</label>
                     <input type="text" id="full_name" name="full_name" required>
+                    <small id="fullNameError" style="display:none; color: var(--danger-color); margin-top:6px; display:block;"></small>
                 </div>
 
                 <div class="form-group">
@@ -633,6 +634,7 @@ foreach ($criteria as $criterion) {
                 <div class="form-group">
                     <label for="editFullName">Full Name:</label>
                     <input type="text" id="editFullName" name="full_name" required>
+                    <small id="editFullNameError" style="display:none; color: var(--danger-color); margin-top:6px; display:block;"></small>
                 </div>
 
                 <div class="form-group">
@@ -1250,6 +1252,47 @@ foreach ($criteria as $criterion) {
 
         // Form submission
         document.addEventListener('DOMContentLoaded', function() {
+            // Full Name validation (no digits; allow letters, spaces, hyphen, apostrophe)
+            function isValidFullName(name) {
+                if (!name) return false;
+                // Prefer Unicode letter property if supported
+                try {
+                    const reU = new RegExp("^(?=.*\\\\l)(?=.*[A-Za-z\u00C0-\u024F])[\l\s'-]+$", 'u');
+                } catch(e) {}
+                // Use Unicode property escapes when available
+                try {
+                    const re = /^(?=.*\p{L})[\p{L}\s'-]+$/u;
+                    return re.test(name);
+                } catch(e) {
+                    // Fallback: basic Latin letters, spaces, hyphen, apostrophe
+                    const re2 = /^(?=.*[A-Za-z])[A-Za-z\s'-]+$/;
+                    return re2.test(name);
+                }
+            }
+
+            function attachFullNameValidation(inputId, errorId) {
+                const input = document.getElementById(inputId);
+                const err = document.getElementById(errorId);
+                if (!input || !err) return () => true;
+                const msg = "Full Name cannot contain numbers. Please enter a valid name.";
+                const validate = () => {
+                    const ok = isValidFullName(input.value.trim());
+                    if (!ok) {
+                        err.textContent = msg;
+                        err.style.display = 'block';
+                    } else {
+                        err.textContent = '';
+                        err.style.display = 'none';
+                    }
+                    return ok;
+                };
+                input.addEventListener('input', validate);
+                input.addEventListener('blur', validate);
+                return validate;
+            }
+
+            const validateAddFullName = attachFullNameValidation('full_name', 'fullNameError');
+            const validateEditFullName = attachFullNameValidation('editFullName', 'editFullNameError');
             // On load, forcibly hide all modals in case of stale state after reload
             closeAllModals();
             // Utility: Load subjects for a given department into a select (multi)
@@ -1314,7 +1357,11 @@ foreach ($criteria as $criterion) {
             if (addUserForm) {
                 addUserForm.addEventListener('submit', function(e) {
                     e.preventDefault();
-                    
+                    // Guard: validate full name
+                    if (typeof validateAddFullName === 'function' && !validateAddFullName()) {
+                        return;
+                    }
+
                     const formData = new FormData(this);
                     formData.append('action', 'add_user');
                     
@@ -1343,7 +1390,11 @@ foreach ($criteria as $criterion) {
             if (editUserForm) {
                 editUserForm.addEventListener('submit', function(e) {
                     e.preventDefault();
-                    
+                    // Guard: validate full name
+                    if (typeof validateEditFullName === 'function' && !validateEditFullName()) {
+                        return;
+                    }
+
                     const formData = new FormData(this);
                     formData.append('action', 'edit_user');
                     

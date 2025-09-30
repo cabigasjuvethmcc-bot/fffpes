@@ -19,6 +19,7 @@ $role = sanitizeInput($_POST['role'] ?? ''); // Expected: Student | Faculty | De
 
 if (!$request_id || !$identifier || !$role) {
     header('Location: manage_password_resets.php');
+    exit();
 }
 
 try {
@@ -47,16 +48,6 @@ try {
     }
 
     $info = $lookup[$role_norm];
-
-    // Ensure deans table exists if role is Dean (some setups create it lazily)
-    if ($role_norm === 'Dean') {
-        $pdo->exec("CREATE TABLE IF NOT EXISTS deans (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            employee_id VARCHAR(20) UNIQUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-    }
 
     // Find the user_id via join on the role-specific table
     $sql = "SELECT u.id AS user_id

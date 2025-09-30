@@ -44,6 +44,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new Exception('All required fields must be filled');
                 }
             }
+
+            // Validate full name: allow letters, spaces, hyphen, apostrophe; disallow digits
+            if (!preg_match("/^(?=.*\\p{L})[\\p{L}\\s'-]+$/u", $full_name)) {
+                throw new Exception("Full Name cannot contain numbers. Please enter a valid name.");
+            }
             
             if (!in_array($role, ['student', 'faculty', 'dean', 'admin'])) {
                 throw new Exception('Invalid role selected');
@@ -381,6 +386,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             if (!$full_name || !$department) {
                 throw new Exception('Full name and department are required');
+            }
+
+            // Validate full name: allow letters, spaces, hyphen, apostrophe; disallow digits
+            if (!preg_match("/^(?=.*\\p{L})[\\p{L}\\s'-]+$/u", $full_name)) {
+                throw new Exception("Full Name cannot contain numbers. Please enter a valid name.");
             }
             
             // Get user's current role
