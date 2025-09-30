@@ -292,6 +292,7 @@ foreach ($criteria as $criterion) {
             <a href="#" onclick="showSection('criteria')">Evaluation Criteria</a>
             <!-- Manage Subjects removed: handled by Department Admin -->
             <a href="#" onclick="showSection('reports')">System Reports</a>
+            <a href="manage_password_resets.php">Password Reset Requests</a>
             <a href="#" onclick="showSection('settings')">Settings</a>
             <button class="logout-btn" onclick="logout()">Logout</button>
         </div>
@@ -340,6 +341,30 @@ foreach ($criteria as $criterion) {
                         <button class="submit-btn" onclick="openAddCriterionModal()">Add Evaluation Criterion</button>
                         <button class="submit-btn" onclick="generateSystemReport()">Generate System Report</button>
                     </div>
+                </div>
+            </div>
+
+            <!-- Password Reset Requests Section -->
+            <div id="password_resets-section" class="content-section" style="display:none;">
+                <h2>Password Reset Requests</h2>
+                <div class="management-section">
+                    <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 1rem;">
+                        <h3>Requests</h3>
+                        <button class="submit-btn" onclick="loadResetRequests()">Refresh</button>
+                    </div>
+                    <table class="users-table" id="reset_requests_table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Identifier (Student/Employee ID)</th>
+                                <th>Requested At</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -1079,6 +1104,100 @@ foreach ($criteria as $criterion) {
         function exportDatabase() {
             if (confirm('This will export the entire database. Continue?')) {
                 window.location.href = 'export_database.php';
+            }
+        }
+
+        // Password reset requests management
+        async function loadResetRequests() {
+            try {
+                const fd = new FormData();
+                fd.append('action', 'list_reset_requests');
+                const res = await fetch('manage_users.php', { method: 'POST', body: fd });
+                const data = await res.json();
+                const tbody = document.querySelector('#reset_requests_table tbody');
+                if (!tbody) return;
+                tbody.innerHTML = '';
+                if (!data.success || !Array.isArray(data.data)) {
+                    const tr = document.createElement('tr');
+                    const td = document.createElement('td');
+                    td.colSpan = 5; td.textContent = data.message || 'Failed to load requests';
+                    tr.appendChild(td); tbody.appendChild(tr); return;
+                }
+                if (data.data.length === 0) {
+                    const tr = document.createElement('tr');
+                    const td = document.createElement('td');
+                    td.colSpan = 5; td.textContent = 'No requests.';
+                    tr.appendChild(td); tbody.appendChild(tr); return;
+                }
+                for (const r of data.data) {
+                    const tr = document.createElement('tr');
+                    const actions = document.createElement('div');
+                    actions.className = 'action-buttons';
+                    const btnReset = document.createElement('button');
+                    btnReset.className = 'btn-small btn-reset';
+                    btnReset.textContent = 'Reset to 123';
+                    btnReset.onclick = () => adminResetByIdentifier(r.identifier, r.id);
+                    const btnResolve = document.createElement('button');
+                    btnResolve.className = 'btn-small btn-edit';
+                    btnResolve.textContent = 'Mark Resolved';
+                    btnResolve.onclick = () => resolveResetRequest(r.id);
+                    actions.appendChild(btnReset);
+                    actions.appendChild(btnResolve);
+
+                    tr.innerHTML = `
+                        <td>${r.id}</td>
+                        <td>${(r.identifier || '')}</td>
+                        <td>${(r.created_at || '')}</td>
+                        <td>${(r.status || '')}</td>
+                        <td></td>`;
+                    tr.querySelector('td:last-child').appendChild(actions);
+                    tbody.appendChild(tr);
+                }
+            } catch(e) {
+                alert('Failed to load reset requests.');
+            }
+        }
+
+        async function adminResetByIdentifier(identifier, requestId) {
+            if (!confirm('Reset password to default (123) for ' + identifier + '?')) return;
+            try {
+                const fd = new FormData();
+                fd.append('action', 'reset_by_identifier');
+                fd.append('csrf_token', CSRF_TOKEN);
+                fd.append('identifier', identifier);
+                const res = await fetch('manage_users.php', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.success) {
+                    alert(data.message);
+                    // If this reset originated from a request row, auto-mark it resolved
+                    if (requestId) {
+                        await resolveResetRequest(requestId);
+                    }
+                } else {
+                    alert('Error: ' + (data.message || 'Failed'));
+                }
+            } catch(e) {
+                alert('An error occurred while resetting.');
+            }
+        }
+
+        async function resolveResetRequest(requestId) {
+            if (!confirm('Mark this request as Resolved?')) return;
+            try {
+                const fd = new FormData();
+                fd.append('action', 'resolve_reset_request');
+                fd.append('csrf_token', CSRF_TOKEN);
+                fd.append('request_id', requestId);
+                const res = await fetch('manage_users.php', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.success) {
+                    alert('Request marked as Resolved');
+                    loadResetRequests();
+                } else {
+                    alert('Error: ' + (data.message || 'Failed'));
+                }
+            } catch(e) {
+                alert('An error occurred while updating the request.');
             }
         }
 

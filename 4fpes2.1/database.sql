@@ -113,3 +113,12 @@ INSERT INTO evaluation_criteria (category, criterion, description, weight) VALUE
 ('Professional Conduct', 'Punctuality', 'Instructor punctuality and attendance', 1.0),
 ('Professional Conduct', 'Respect for Students', 'Shows respect and consideration for all students', 1.0),
 ('Course Content', 'Relevance of Material', 'Relevance and currency of course materials', 1.0);
+
+-- Password reset requests
+CREATE TABLE IF NOT EXISTS password_reset_requests (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    identifier VARCHAR(50) NOT NULL,
+    role ENUM('Student','Faculty','Dean') NOT NULL,
+    status ENUM('Pending','Resolved') DEFAULT 'Pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

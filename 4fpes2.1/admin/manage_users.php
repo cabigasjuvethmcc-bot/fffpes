@@ -609,7 +609,98 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
         }
     }
-    
+
+    // List password reset requests for admin dashboard
+    elseif ($action === 'list_reset_requests') {
+        try {
+            // Ensure table exists
+            $pdo->exec("CREATE TABLE IF NOT EXISTS password_reset_requests (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                identifier VARCHAR(50) NOT NULL,
+                status ENUM('Pending','Resolved') NOT NULL DEFAULT 'Pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP NULL DEFAULT NULL,
+                INDEX (identifier),
+                INDEX (status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+            $stmt = $pdo->prepare("SELECT id, identifier, status, created_at, resolved_at FROM password_reset_requests ORDER BY status='Pending' DESC, created_at DESC");
+            $stmt->execute();
+            echo json_encode(['success' => true, 'data' => $stmt->fetchAll()]);
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'message' => 'Failed to load requests']);
+        }
+    }
+
+    // Reset a user's password to default (123) by Student ID or Employee ID
+    elseif ($action === 'reset_by_identifier') {
+        try {
+            if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+                throw new Exception('Invalid security token');
+            }
+            $identifier = sanitizeInput($_POST['identifier'] ?? '');
+            if ($identifier === '') {
+                throw new Exception('Missing identifier');
+            }
+            // Try student
+            $user = null;
+            $q = $pdo->prepare("SELECT u.id, u.username, u.full_name, u.role FROM users u INNER JOIN students s ON u.id = s.user_id WHERE s.student_id = ? LIMIT 1");
+            $q->execute([$identifier]);
+            $user = $q->fetch();
+            if (!$user) {
+                // Try faculty
+                $q = $pdo->prepare("SELECT u.id, u.username, u.full_name, u.role FROM users u INNER JOIN faculty f ON u.id = f.user_id WHERE f.employee_id = ? LIMIT 1");
+                $q->execute([$identifier]);
+                $user = $q->fetch();
+            }
+            if (!$user) {
+                // Try dean
+                $q = $pdo->prepare("SELECT u.id, u.username, u.full_name, u.role FROM users u INNER JOIN deans d ON u.id = d.user_id WHERE d.employee_id = ? LIMIT 1");
+                $q->execute([$identifier]);
+                $user = $q->fetch();
+            }
+            if (!$user) {
+                throw new Exception('No user found for identifier');
+            }
+            if (!in_array($user['role'], ['student','faculty','dean'], true)) {
+                throw new Exception('Only Students, Faculty, and Deans can be reset via identifier');
+            }
+            $new_hash = password_hash('123', PASSWORD_DEFAULT);
+            $upd = $pdo->prepare("UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
+            $upd->execute([$new_hash, (int)$user['id']]);
+            echo json_encode(['success' => true, 'message' => 'Password reset to default (123) for ' . ($user['full_name'] ?: $user['username'])]);
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+    }
+
+    // Mark a password reset request as Resolved
+    elseif ($action === 'resolve_reset_request') {
+        try {
+            if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+                throw new Exception('Invalid security token');
+            }
+            $request_id = (int)($_POST['request_id'] ?? 0);
+            if (!$request_id) {
+                throw new Exception('Invalid request ID');
+            }
+            $pdo->exec("CREATE TABLE IF NOT EXISTS password_reset_requests (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                identifier VARCHAR(50) NOT NULL,
+                status ENUM('Pending','Resolved') NOT NULL DEFAULT 'Pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP NULL DEFAULT NULL,
+                INDEX (identifier),
+                INDEX (status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+            $stmt = $pdo->prepare("UPDATE password_reset_requests SET status = 'Resolved', resolved_at = CURRENT_TIMESTAMP WHERE id = ?");
+            $stmt->execute([$request_id]);
+            echo json_encode(['success' => true, 'message' => 'Request marked as Resolved']);
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+    }
+
     exit();
 }
 

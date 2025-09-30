@@ -24,7 +24,7 @@ body {
   color: #333;
   line-height: 1.6;
 }
-.container { max-width: 1200px; margin: 0 auto; padding: 20px; display: none; }
+ .container { max-width: 1200px; margin: 0 auto; padding: 20px; display: block; }
 h1, h2 { color: var(--dark-color); margin-bottom: 1rem; font-weight: 600; }
 /* Search Container Styles */
 .search-container {
