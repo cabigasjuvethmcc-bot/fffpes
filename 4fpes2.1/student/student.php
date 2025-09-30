@@ -77,6 +77,8 @@ $evaluations = $stmt->fetchAll();
     <link rel="stylesheet" href="student.css">
 </head>
 <body>
+    <!-- Mobile sidebar toggle -->
+    <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle navigation">☰ Menu</button>
     <div class="dashboard">
         <div class="sidebar">
             <h2>Student Portal</h2>
@@ -241,5 +243,16 @@ $evaluations = $stmt->fetchAll();
     </div>
 
     <script src="student.js"></script>
+    <script>
+      (function(){
+        var btn = document.getElementById('sidebarToggle');
+        var sidebar = document.querySelector('.sidebar');
+        if (btn && sidebar) {
+          btn.addEventListener('click', function(){
+            sidebar.classList.toggle('active');
+          });
+        }
+      })();
+    </script>
 </body>
 </html>

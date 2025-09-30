@@ -68,24 +68,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Report (Forgot Password)</title>
+  <title>Forgot Password</title>
   <link rel="stylesheet" href="styles.css" />
   <style>
-    /* Page-specific minimal styles to ensure visibility */
+    /* Page-specific styles */
     body { background:#f8fafc; color:#111; }
-    .forgot-wrapper { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
-    .forgot-card { background:#fff; border-radius:12px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); padding: 20px; }
-    .forgot-card h2 { margin: 0 0 12px 0; }
+    .forgot-wrapper { max-width: 760px; margin: 2.5rem auto; padding: 0 1rem; }
+    .forgot-hero { display:flex; align-items:center; justify-content:center; margin-bottom: 1rem; position: relative; height: 110px; }
+    /* Blue badge behind */
+    .badge-gear { position:absolute; width: 120px; height: 120px; background:#60a5fa; border-radius: 50%; filter: drop-shadow(0 6px 18px rgba(0,0,0,.12)); display:flex; align-items:center; justify-content:center; }
+    .badge-gear::before { content:''; width: 86px; height:86px; background:#ffffff; border-radius:50%; box-shadow: inset 0 0 0 6px #60a5fa; }
+    /* Pink ribbon */
+    .ribbon { position:relative; background:#f472b6; color:#fff; padding: 14px 26px; border-radius: 999px; font: 700 1.05rem/1.1 "Inter", system-ui, Arial; letter-spacing: .3px; text-transform: uppercase; box-shadow: 0 10px 24px rgba(244,114,182,.25); }
+    .ribbon::before, .ribbon::after { content:''; position:absolute; top:0; bottom:0; width:26px; background:#f472b6; }
+    .ribbon::before { left:-18px; border-top-left-radius:999px; border-bottom-left-radius:999px; }
+    .ribbon::after  { right:-18px; border-top-right-radius:999px; border-bottom-right-radius:999px; }
+    .forgot-card { background:#fff; border-radius:14px; box-shadow: 0 10px 28px rgba(0,0,0,0.10); padding: 22px; }
+    .forgot-card h2 { margin: 0 0 10px 0; font-weight:700; }
     .forgot-card .form-group { margin-bottom: 1rem; }
-    .forgot-card input[type="text"], .forgot-card select { width:100%; padding: 8px 10px; border: 1px solid #cbd5e0; border-radius: 6px; }
-    .forgot-card .submit-btn { padding: 8px 14px; border-radius: 8px; }
+    .forgot-card label { display:block; margin-bottom: .4rem; font-weight:600; color:#1f2937; }
+    .forgot-card input[type="text"], .forgot-card select { width:100%; padding: 10px 12px; border: 2px solid #e1e5e9; border-radius: 10px; transition: border-color .2s ease, box-shadow .2s ease; }
+    .forgot-card input:focus, .forgot-card select:focus { outline:none; border-color:#10b981; box-shadow:0 0 0 3px rgba(16,185,129,.15); }
+    .actions { display:flex; align-items:center; gap:.75rem; }
+    .btn-outline-primary { display:inline-block; border:2px solid #10b981; color:#0f5132; background:transparent; padding:.65rem 1rem; border-radius:10px; font-weight:700; transition: all .2s ease; }
+    .btn-outline-primary:hover { background:rgba(16,185,129,.08); box-shadow:0 6px 14px rgba(16,185,129,.2); transform: translateY(-1px); }
+    .link-muted { color:#475569; text-decoration:none; }
+    .link-muted:hover { text-decoration:underline; }
   </style>
 </head>
 <body>
   <div class="forgot-wrapper">
+    <div class="forgot-hero" aria-hidden="true">
+      <div class="badge-gear"></div>
+      <div class="ribbon">Forgot Password</div>
+    </div>
     <div class="forgot-card">
-    <h2>Report (Forgot Password)</h2>
-    <p style="color:#555;">Enter your Student ID or Employee ID and select your role. The System Admin will reset your password and notify you.</p>
+    <h2 style="display:none;">Forgot Password</h2>
+    <p style="color:#4b5563;">Enter your Student ID or Employee ID and select your role. The System Admin will reset your password and notify you.</p>
 
     <?php if (!empty($message)): ?>
       <div class="success-message" style="display:block;"><?php echo htmlspecialchars($message); ?></div>
@@ -109,8 +128,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <option value="Dean">Dean</option>
         </select>
       </div>
-      <button type="submit" class="submit-btn">Submit Report</button>
-      <a href="index.php" style="margin-left:1rem;">Back to Login</a>
+      <div class="actions">
+        <button type="submit" class="btn-outline-primary">Submit Request</button>
+        <a class="link-muted" href="index.php">Back to Login</a>
+      </div>
     </form>
     </div>
   </div>
