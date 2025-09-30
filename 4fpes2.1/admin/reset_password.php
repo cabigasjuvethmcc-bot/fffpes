@@ -73,10 +73,30 @@ try {
 
     $user_id = (int)$row['user_id'];
 
-    // Reset password to '123' (hashed)
+    // Ensure password_audit table exists
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS password_audit (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            action VARCHAR(50) NOT NULL,
+            performed_by INT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_user (user_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (performed_by) REFERENCES users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+    } catch (PDOException $e) { /* ignore */ }
+
+    // Reset password to '123' (hashed) and force change on next login
     $new_hash = password_hash('123', PASSWORD_DEFAULT);
-    $stmt = $pdo->prepare('UPDATE users SET password = ? WHERE id = ?');
+    $stmt = $pdo->prepare('UPDATE users SET password = ?, must_change_password = 1 WHERE id = ?');
     $stmt->execute([$new_hash, $user_id]);
+
+    // Audit: admin reset
+    try {
+        $aud = $pdo->prepare('INSERT INTO password_audit (user_id, action, performed_by) VALUES (?, ?, ?)');
+        $aud->execute([$user_id, 'admin_reset', (int)($_SESSION['user_id'] ?? 0)]);
+    } catch (PDOException $e) { /* ignore */ }
 
     // Mark the request as Resolved
     $stmt = $pdo->prepare('UPDATE password_reset_requests SET status = "Resolved" WHERE id = ?');

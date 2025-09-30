@@ -98,10 +98,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             
             if ($authenticated) {
+                // Track if user is required to change password
+                $_SESSION['must_change_password'] = isset($user['must_change_password']) ? (int)$user['must_change_password'] : 0;
+
+                $redirect = 'dashboard.php';
+                if (!empty($_SESSION['must_change_password'])) {
+                    $redirect = 'force_change_password.php';
+                }
                 echo json_encode([
                     'success' => true, 
                     'message' => 'Login successful',
-                    'redirect' => 'dashboard.php'
+                    'redirect' => $redirect
                 ]);
             } else {
                 echo json_encode(['success' => false, 'message' => 'Invalid credentials']);

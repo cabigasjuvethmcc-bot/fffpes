@@ -2,6 +2,12 @@
 require_once 'config.php';
 requireLogin();
 
+// If user is flagged to change password, force redirect
+if (!empty($_SESSION['must_change_password'])) {
+    header('Location: force_change_password.php');
+    exit();
+}
+
 // Redirect to appropriate dashboard based on role
 switch ($_SESSION['role']) {
     case 'student':

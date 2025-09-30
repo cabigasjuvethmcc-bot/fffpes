@@ -344,6 +344,7 @@ try {
             <a href="#" onclick="showSection('trends')">Trends & Reports</a>
             <a href="#" onclick="showSection('criteria')">Criteria Analysis</a>
             <a href="#" onclick="showSection('evaluate')">Evaluate Faculty</a>
+            <a href="#" onclick="showSection('profile')">Profile</a>
             <button class="logout-btn" onclick="logout()">Logout</button>
         </div>
 
@@ -744,6 +745,45 @@ try {
                     <p class="muted-note">Dean evaluations are anonymous and flagged as Dean evaluations.</p>
                 </form>
             </div>
+
+            <!-- Profile Section -->
+            <div id="profile-section" class="content-section" style="display: none;">
+                <h2>My Profile</h2>
+                <div class="profile-info">
+                    <div class="info-group">
+                        <label>Full Name:</label>
+                        <span><?php echo htmlspecialchars($dean['full_name']); ?></span>
+                    </div>
+                    <div class="info-group">
+                        <label>Department:</label>
+                        <span><?php echo htmlspecialchars($dean['department']); ?></span>
+                    </div>
+                </div>
+
+                <div class="profile-info" style="margin-top:1rem;">
+                    <h3 style="margin:0 0 .5rem;">Edit Password</h3>
+                    <form id="dean-change-password-form" class="forgot-card" onsubmit="return false;">
+                        <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
+                        <div class="form-group">
+                            <label for="current_password">Current Password</label>
+                            <input type="password" id="current_password" name="current_password" required />
+                        </div>
+                        <div class="form-group">
+                            <label for="new_password">New Password</label>
+                            <input type="password" id="new_password" name="new_password" required />
+                            <div class="hint" style="color:#6b7280; font-size:.9rem;">At least 8 characters, include letters and numbers.</div>
+                        </div>
+                        <div class="form-group">
+                            <label for="confirm_password">Confirm New Password</label>
+                            <input type="password" id="confirm_password" name="confirm_password" required />
+                        </div>
+                        <div id="dean-pw-msg" class="error-message" style="display:none;"></div>
+                        <div id="dean-pw-success" class="success-message" style="display:none; color:#166534; background:#dcfce7; padding:.75rem; border-radius:10px;">Password changed successfully.</div>
+                        <button type="submit" class="btn-primary">Save Password</button>
+                    </form>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -807,6 +847,42 @@ try {
                 window.location.href = '../index.php';
             });
         }
+
+        // Password change handler (Dean)
+        (function(){
+            const form = document.getElementById('dean-change-password-form');
+            if (!form) return;
+            const err = document.getElementById('dean-pw-msg');
+            const ok = document.getElementById('dean-pw-success');
+            form.addEventListener('submit', function(){
+                err.style.display = 'none'; ok.style.display = 'none';
+                const fd = new FormData(form);
+                const np = fd.get('new_password')+''; const cp = fd.get('confirm_password')+'';
+                if (np.length < 8 || !/[A-Za-z]/.test(np) || !/\d/.test(np)) {
+                    err.textContent = 'Password must be at least 8 characters and include letters and numbers.';
+                    err.style.display = 'block';
+                    return;
+                }
+                if (np !== cp) {
+                    err.textContent = 'New Password and Confirm New Password do not match.';
+                    err.style.display = 'block';
+                    return;
+                }
+                fetch('../api/change_password.php', { method:'POST', body: fd })
+                    .then(r=>r.json())
+                    .then(data=>{
+                        if (data.success) {
+                            ok.textContent = data.message || 'Password changed successfully. Logging out...';
+                            ok.style.display = 'block';
+                            setTimeout(()=>{ window.location.href = data.redirect || '../index.php'; }, 1200);
+                        } else {
+                            err.textContent = data.message || 'Unable to change password.';
+                            err.style.display = 'block';
+                        }
+                    })
+                    .catch(()=>{ err.textContent = 'Network error. Please try again.'; err.style.display='block'; });
+            });
+        })();
 
         // Export functions
         function exportToCSV() {

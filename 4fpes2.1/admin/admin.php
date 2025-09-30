@@ -828,7 +828,12 @@ foreach ($criteria as $criterion) {
         }
 
         // Modal functions
+        function closeAllModals() {
+            document.querySelectorAll('.modal').forEach(m => { m.style.display = 'none'; });
+        }
         function openAddUserModal() {
+            // Ensure no lingering overlays block clicks
+            closeAllModals();
             document.getElementById('addUserModal').style.display = 'block';
             // Ensure role-specific fields and program options are initialized
             toggleRoleFields();
@@ -889,7 +894,7 @@ foreach ($criteria as $criterion) {
             facultyFields.style.display = showFaculty ? 'block' : 'none';
             studentFields.style.display = showStudent ? 'block' : 'none';
 
-            // Prevent hidden sections from blocking form submit
+            // Prevent hidden sections from blocking form submit (disable required/controls)
             setSectionEnabled('facultyFields', showFaculty);
             setSectionEnabled('studentFields', showStudent);
 
@@ -903,8 +908,9 @@ foreach ($criteria as $criterion) {
                 const deptSel = document.getElementById('department');
                 if (deptSel) populateProgramOptions(deptSel.value);
             }
-            // Hide username for students (ID auto-generated)
-            toggleUsernameVisibility(!showStudent);
+            // Show username only for admin; auto-generate for student/faculty/dean
+            const showUsername = (role === 'admin');
+            toggleUsernameVisibility(showUsername);
         }
 
         // Department-specific program lists (mirrors department admin pages)
@@ -1244,6 +1250,8 @@ foreach ($criteria as $criterion) {
 
         // Form submission
         document.addEventListener('DOMContentLoaded', function() {
+            // On load, forcibly hide all modals in case of stale state after reload
+            closeAllModals();
             // Utility: Load subjects for a given department into a select (multi)
             window.loadSubjects = async function(dept, selectId) {
                 const sel = document.getElementById(selectId);
@@ -1453,28 +1461,7 @@ foreach ($criteria as $criterion) {
             }
         }
 
-        // Toggle fields based on selected role in Add User modal
-        function toggleRoleFields() {
-            const roleSel = document.getElementById('role');
-            const usernameGroup = document.getElementById('usernameGroup');
-            const usernameInput = document.getElementById('username');
-            const facultyFields = document.getElementById('facultyFields');
-            const studentFields = document.getElementById('studentFields');
-
-            if (!roleSel) return;
-            const role = roleSel.value;
-
-            if (facultyFields) facultyFields.style.display = (role === 'faculty') ? 'block' : 'none';
-            if (studentFields) studentFields.style.display = (role === 'student') ? 'block' : 'none';
-
-            if (role === 'student' || role === 'faculty' || role === 'dean') {
-                if (usernameGroup) usernameGroup.style.display = 'none';
-                if (usernameInput) usernameInput.required = false;
-            } else {
-                if (usernameGroup) usernameGroup.style.display = 'block';
-                if (usernameInput) usernameInput.required = true;
-            }
-        }
+        // (Removed duplicate toggleRoleFields; the primary implementation above handles disabling hidden required fields.)
 
         // Close modal when clicking outside
         window.onclick = function(event) {
