@@ -65,18 +65,19 @@ function logout() {
         }
     })
     .catch(error => {
-        console.error('Error:', error);
         window.location.href = '../index.php';
     });
 }
 
 // Handle evaluation form submission
-document.addEventListener('DOMContentLoaded', function() {
+  document.addEventListener('DOMContentLoaded', function() {
     const evaluationForm = document.getElementById('evaluation-form');
     const mainContent = document.querySelector('.main-content');
     const enrollmentSelect = document.getElementById('enrollment_select');
     const hiddenFacultyId = document.getElementById('faculty_id');
     const hiddenSubject = document.getElementById('subject');
+    const semesterInput = document.getElementById('semester');
+    const acadYearInput = document.getElementById('academic_year');
 
     // Handle flash messages (persisted across reloads)
     const flashMessage = sessionStorage.getItem('flashMessage');
@@ -101,6 +102,32 @@ document.addEventListener('DOMContentLoaded', function() {
         sessionStorage.removeItem('flashSection');
     }
     
+    // Hide already-evaluated options based on selected period
+    function updateEnrollmentOptions() {
+        if (!enrollmentSelect) return;
+        const sem = (semesterInput && semesterInput.value) || '';
+        const ay = (acadYearInput && (acadYearInput.value || acadYearInput.getAttribute('value'))) || '';
+        const evals = (window.STUDENT_EVALS || []);
+        const options = Array.from(enrollmentSelect.options);
+        // Skip first placeholder
+        options.slice(1).forEach(opt => {
+            opt.style.display = '';
+            const facultyId = parseInt(opt.getAttribute('data-faculty-id') || '0', 10);
+            const subject = opt.getAttribute('data-subject') || '';
+            const dup = evals.some(ev => ev.faculty_id === facultyId && ev.subject === subject && (
+                (!sem || ev.semester === sem) && (!ay || ev.academic_year === ay)
+            ));
+            if (dup) {
+                opt.style.display = 'none';
+                if (enrollmentSelect.value === opt.value) {
+                    enrollmentSelect.value = '';
+                    hiddenFacultyId.value = '';
+                    hiddenSubject.value = '';
+                }
+            }
+        });
+    }
+
     // Wire up enrollment selection to hidden fields used by backend
     if (enrollmentSelect && hiddenFacultyId && hiddenSubject) {
         enrollmentSelect.addEventListener('change', function() {
@@ -113,6 +140,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 hiddenSubject.value = '';
             }
         });
+        // Trigger initial filtering and react to period changes
+        updateEnrollmentOptions();
+        if (semesterInput) semesterInput.addEventListener('change', updateEnrollmentOptions);
+        if (acadYearInput) acadYearInput.addEventListener('input', updateEnrollmentOptions);
     }
 
     if (evaluationForm) {

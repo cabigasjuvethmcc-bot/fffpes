@@ -29,8 +29,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         try {
-            $pdo->beginTransaction();
-            
+            // Ensure junction table exists for enrollments (DDL outside transaction to avoid implicit commits)
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS student_faculty_subjects (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    student_user_id INT NOT NULL,
+                    faculty_user_id INT NOT NULL,
+                    subject_code VARCHAR(50) DEFAULT NULL,
+                    subject_name VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_assignment (student_user_id, faculty_user_id, subject_code, subject_name),
+                    INDEX idx_student (student_user_id),
+                    INDEX idx_faculty (faculty_user_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+            } catch (PDOException $e) {
+                // proceed; inserts may fail later if table truly missing
+            }
+
+            // Begin transaction for DML only
+            $txStarted = false;
+            try { $txStarted = $pdo->beginTransaction(); } catch (PDOException $e) { $txStarted = $pdo->inTransaction(); }
+
             // Update user info
             $stmt = $pdo->prepare("UPDATE users SET full_name = ?, email = ? WHERE id = ? AND department = 'Education'");
             $stmt->execute([$full_name, $email, $student_id]);
@@ -38,19 +57,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Update student info
             $stmt = $pdo->prepare("UPDATE students SET year_level = ?, program = ? WHERE user_id = ?");
             $stmt->execute([$year_level, $program, $student_id]);
-
-            // Ensure junction table exists for enrollments
-            $pdo->exec("CREATE TABLE IF NOT EXISTS student_faculty_subjects (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                student_user_id INT NOT NULL,
-                faculty_user_id INT NOT NULL,
-                subject_code VARCHAR(50) DEFAULT NULL,
-                subject_name VARCHAR(255) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY uniq_assignment (student_user_id, faculty_user_id, subject_code, subject_name),
-                INDEX idx_student (student_user_id),
-                INDEX idx_faculty (faculty_user_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
             // Replace existing enrollments with submitted ones
             $pdo->prepare("DELETE FROM student_faculty_subjects WHERE student_user_id = ?")->execute([(int)$student_id]);
@@ -66,11 +72,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             
-            $pdo->commit();
+            if ($txStarted && $pdo->inTransaction()) {
+                try { $pdo->commit(); } catch (PDOException $eCommit) { /* ignore commit when no active tx */ }
+            }
             $success = 'Student information updated successfully!';
         } catch (PDOException $e) {
-            $pdo->rollback();
-            $error = 'Error updating student: ' . $e->getMessage();
+            if (!empty($txStarted) && $pdo->inTransaction()) {
+                try { $pdo->rollBack(); } catch (PDOException $eRb) { /* ignore rollback when no active tx */ }
+            }
+            if (function_exists('error_log')) { @error_log('[education/student_management] update_student failed: ' . $e->getMessage()); }
+            $error = 'Error updating student. Please try again.';
         }
     }
     

@@ -9,14 +9,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new Exception('Invalid security token');
         }
 
+        // Enforce evaluation schedule and active period for deans
+        list($ok, $err, $period) = enforceActiveSemesterYear($pdo);
+        if (!$ok) {
+            throw new Exception($err);
+        }
+
         // Gather inputs
         $faculty_id = (int)($_POST['faculty_id'] ?? 0);
         $subject = sanitizeInput($_POST['subject'] ?? '');
-        $semester = sanitizeInput($_POST['semester'] ?? '');
-        $academic_year = sanitizeInput($_POST['academic_year'] ?? '');
+        // Force semester/year to active period
+        $semester = $period['semester'];
+        $academic_year = $period['academic_year'];
         $overall_comments = sanitizeInput($_POST['overall_comments'] ?? '');
 
-        if (!$faculty_id || !$subject || !$semester || !$academic_year) {
+        if (!$faculty_id || !$subject) {
             throw new Exception('All required fields must be filled');
         }
 
@@ -28,6 +35,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$faculty_id, $_SESSION['department'] ?? '']);
         if (!$stmt->fetch()) {
             throw new Exception('You can only evaluate faculty within your department.');
+        }
+
+        // Prevent duplicate evaluations: one evaluation per dean per faculty per subject+period
+        try {
+            $stmt = $pdo->prepare("SELECT id FROM evaluations
+                                    WHERE faculty_id = ?
+                                      AND subject = ?
+                                      AND semester = ?
+                                      AND academic_year = ?
+                                      AND ((evaluator_user_id = ? AND evaluator_role = 'dean') OR (evaluator_user_id IS NULL AND COALESCE(evaluator_role,'') = ''))
+                                      AND status = 'submitted'
+                                    LIMIT 1");
+            $stmt->execute([$faculty_id, $subject, $semester, $academic_year, $_SESSION['user_id']]);
+            if ($stmt->fetch()) {
+                throw new Exception('You have already evaluated this faculty for the selected subject and period.');
+            }
+        } catch (PDOException $e) {
+            // Fallback for older schemas without evaluator columns: approximate by lack of evaluator fields
+            $stmt = $pdo->prepare("SELECT id FROM evaluations
+                                    WHERE faculty_id = ? AND subject = ? AND semester = ? AND academic_year = ?
+                                      AND status = 'submitted' AND is_anonymous = 1
+                                    LIMIT 1");
+            $stmt->execute([$faculty_id, $subject, $semester, $academic_year]);
+            if ($stmt->fetch()) {
+                throw new Exception('You have already evaluated this faculty for the selected subject and period.');
+            }
         }
 
         // Ensure evaluations table supports evaluator metadata
@@ -43,6 +76,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->exec("ALTER TABLE evaluations MODIFY student_id INT NULL");
         } catch (PDOException $e) {
             // ignore if already nullable
+        }
+
+        // Ensure unique indexes exist (safe no-op if already present)
+        if (function_exists('ensureEvaluationUniqueIndexes')) {
+            ensureEvaluationUniqueIndexes($pdo);
         }
 
         $pdo->beginTransaction();
@@ -96,7 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         echo json_encode([
             'success' => true,
-            'message' => '✅ Your evaluation has been submitted successfully.'
+            'message' => '✅ Evaluation submitted successfully. You cannot evaluate this faculty again for the same subject and period.'
         ]);
     } catch (Exception $e) {
         if ($pdo->inTransaction()) {

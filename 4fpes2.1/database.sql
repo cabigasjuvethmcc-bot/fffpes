@@ -122,3 +122,26 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
     status ENUM('Pending','Resolved') DEFAULT 'Pending',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Global Evaluation Schedule (applies to all departments and students)
+CREATE TABLE IF NOT EXISTS evaluation_schedule (
+    id INT PRIMARY KEY,
+    start_at DATETIME NULL,
+    end_at DATETIME NULL,
+    override_mode ENUM('auto','open','closed') DEFAULT 'auto',
+    notice VARCHAR(255) NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- Seed singleton row
+INSERT INTO evaluation_schedule (id, start_at, end_at, override_mode, notice)
+VALUES (1, NULL, NULL, 'auto', NULL)
+ON DUPLICATE KEY UPDATE id = id;
+
+-- Student one-time evaluation per faculty+subject+semester+academic_year
+-- Note: UNIQUE allows multiple NULLs; dean entries (NULL student_id) will not conflict
+CREATE UNIQUE INDEX uniq_student_eval
+  ON evaluations (student_id, faculty_id, subject, semester, academic_year);
+
+-- Dean one-time evaluation per faculty+subject+semester+academic_year
+CREATE UNIQUE INDEX uniq_dean_eval
+  ON evaluations (evaluator_user_id, evaluator_role, faculty_id, subject, semester, academic_year);

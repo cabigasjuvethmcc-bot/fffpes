@@ -8,17 +8,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
             throw new Exception('Invalid security token');
         }
+        // Enforce evaluation schedule and active period for students
+        list($ok, $err, $period) = enforceActiveSemesterYear($pdo);
+        if (!$ok) {
+            throw new Exception($err);
+        }
         
         // Get and validate form data
         $faculty_id = (int)($_POST['faculty_id'] ?? 0);
         $subject = sanitizeInput($_POST['subject'] ?? '');
-        $semester = sanitizeInput($_POST['semester'] ?? '');
-        $academic_year = sanitizeInput($_POST['academic_year'] ?? '');
+        // Force semester and academic year to current active period
+        $semester = $period['semester'];
+        $academic_year = $period['academic_year'];
         $overall_comments = sanitizeInput($_POST['overall_comments'] ?? '');
         // Force anonymity for student evaluations regardless of form input
         $is_anonymous = 1;
         
-        if (!$faculty_id || !$subject || !$semester || !$academic_year) {
+        if (!$faculty_id || !$subject) {
             throw new Exception('All required fields must be filled');
         }
         
@@ -81,6 +87,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Ignore if already nullable or lacking privileges
         }
 
+        // Ensure unique indexes exist (safe no-op if already present)
+        if (function_exists('ensureEvaluationUniqueIndexes')) {
+            ensureEvaluationUniqueIndexes($pdo);
+        }
+
         // Start transaction
         $pdo->beginTransaction();
         
@@ -131,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         echo json_encode([
             'success' => true,
-            'message' => '✅ Your evaluation has been submitted successfully.'
+            'message' => '✅ Evaluation submitted successfully. You cannot evaluate this faculty again for the same subject and period.'
         ]);
         
     } catch (Exception $e) {

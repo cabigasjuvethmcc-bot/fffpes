@@ -65,6 +65,10 @@ $stmt = $pdo->prepare("SELECT e.*, u.full_name as faculty_name, f.position
                        ORDER BY e.created_at DESC");
 $stmt->execute([$_SESSION['student_id']]);
 $evaluations = $stmt->fetchAll();
+
+// Evaluation schedule state and active period
+list($evalOpen, $evalState, $evalReason, $evalSchedule) = isEvaluationOpenForStudents($pdo);
+$activePeriod = $evalOpen ? getActiveSemesterYear($pdo) : null;
 ?>
 
 <!DOCTYPE html>
@@ -94,10 +98,23 @@ $evaluations = $stmt->fetchAll();
                 <p>Student ID: <?php echo htmlspecialchars($student['student_id']); ?> | Program: <?php echo htmlspecialchars($student['program']); ?></p>
             </div>
 
+            <?php
+                // Banner notice for evaluation state
+                $bannerMsg = '';
+                if ($evalOpen) {
+                    $bannerMsg = $evalSchedule['notice'] ?? 'Evaluations are currently OPEN.';
+                    echo '<div class="success-message">' . htmlspecialchars($bannerMsg) . '</div>';
+                } else {
+                    $msg = $evalSchedule['notice'] ?? 'Evaluation is currently closed. Please wait for the admin to open the schedule.';
+                    echo '<div class="error-message">' . htmlspecialchars($msg) . '</div>';
+                }
+            ?>
+
             <!-- Evaluate Faculty Section -->
             <div id="evaluate-section" class="content-section">
                 <h2>Evaluate Faculty Performance</h2>
                 <div class="evaluation-form-container">
+                    <?php if ($evalOpen): ?>
                     <form id="evaluation-form">
                         <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
                         <h3 class="section-title">Subject & Faculty Selection</h3>
@@ -121,6 +138,7 @@ $evaluations = $stmt->fetchAll();
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
+                                <small class="muted-note">Faculty you have already evaluated for the selected subject and period will be hidden.</small>
                                 <!-- Hidden fields populated based on selection to match backend contract -->
                                 <input type="hidden" id="faculty_id" name="faculty_id" value="">
                                 <input type="hidden" id="subject" name="subject" value="">
@@ -129,17 +147,17 @@ $evaluations = $stmt->fetchAll();
 
                         <div class="form-group">
                             <label for="semester">Semester:</label>
-                            <select id="semester" name="semester" required>
+                            <select id="semester" name="semester" required disabled>
                                 <option value="">-- Select Semester --</option>
-                                <option value="1st Semester">1st Semester</option>
-                                <option value="2nd Semester">2nd Semester</option>
-                                <option value="Summer">Summer</option>
+                                <option value="1st Semester" <?php echo ($activePeriod && $activePeriod['semester']==='1st Semester') ? 'selected' : ''; ?>>1st Semester</option>
+                                <option value="2nd Semester" <?php echo ($activePeriod && $activePeriod['semester']==='2nd Semester') ? 'selected' : ''; ?>>2nd Semester</option>
                             </select>
+                            <small class="muted-note">Semester is set automatically based on the current evaluation schedule.</small>
                         </div>
 
                         <div class="form-group">
                             <label for="academic_year">Academic Year:</label>
-                            <input type="text" id="academic_year" name="academic_year" placeholder="e.g., 2023-2024" required>
+                            <input type="text" id="academic_year" name="academic_year" value="<?php echo htmlspecialchars($activePeriod['academic_year'] ?? ''); ?>" placeholder="e.g., 2023-2024" required readonly>
                         </div>
 
                         <div class="evaluation-criteria">
@@ -175,6 +193,9 @@ $evaluations = $stmt->fetchAll();
 
                         <button type="submit" class="submit-btn">Submit Evaluation</button>
                     </form>
+                    <?php else: ?>
+                        <div class="error-message">Evaluation is currently closed. Please wait for the admin to open the schedule.</div>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -265,6 +286,17 @@ $evaluations = $stmt->fetchAll();
         </div>
     </div>
 
+    <script>
+      // Expose student's own evaluations to the frontend for filtering
+      window.STUDENT_EVALS = <?php echo json_encode(array_map(function($e){
+        return [
+          'faculty_id' => (int)$e['faculty_id'],
+          'subject' => $e['subject'],
+          'semester' => $e['semester'],
+          'academic_year' => $e['academic_year']
+        ];
+      }, $evaluations)); ?>;
+    </script>
     <script src="student.js"></script>
     <script>
       (function(){

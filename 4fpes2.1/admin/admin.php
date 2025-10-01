@@ -292,6 +292,7 @@ foreach ($criteria as $criterion) {
             <a href="#" onclick="showSection('criteria')">Evaluation Criteria</a>
             <!-- Manage Subjects removed: handled by Department Admin -->
             <a href="#" onclick="showSection('reports')">System Reports</a>
+            <a href="#" onclick="showSection('eval_schedule')">Manage Evaluation Schedule</a>
             <a href="manage_password_resets.php">Password Reset Requests</a>
             <a href="#" onclick="showSection('settings')">Settings</a>
             <button class="logout-btn" onclick="logout()">Logout</button>
@@ -482,6 +483,45 @@ foreach ($criteria as $criterion) {
                         <button class="submit-btn" onclick="generateEvaluationReport()">Evaluation Summary Report</button>
                         <button class="submit-btn" onclick="generatePerformanceReport()">Faculty Performance Report</button>
                         <button class="submit-btn" onclick="exportDatabase()">Export Database</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manage Evaluation Schedule Section -->
+            <div id="eval_schedule-section" class="content-section" style="display:none;">
+                <h2>Manage Evaluation Schedule</h2>
+                <div class="management-section" id="eval-schedule-container">
+                    <div class="form-container">
+                        <div id="eval-msg" class="success-message" style="display:none;"></div>
+                        <div id="eval-err" class="error-message" style="display:none;"></div>
+
+                        <div class="form-group">
+                            <label for="start_at">Start Date/Time</label>
+                            <input type="datetime-local" id="start_at" />
+                        </div>
+                        <div class="form-group">
+                            <label for="end_at">End Date/Time</label>
+                            <input type="datetime-local" id="end_at" />
+                        </div>
+                        <div class="form-group">
+                            <label for="notice">Student Banner Message (optional)</label>
+                            <input type="text" id="notice" placeholder="e.g., Evaluations are open until Oct 15" />
+                        </div>
+                        <div class="form-group">
+                            <label>Override</label>
+                            <div class="action-buttons">
+                                <button class="submit-btn" id="btn-open-now">Open Now</button>
+                                <button class="submit-btn" id="btn-close-now" style="background: var(--danger-color);">Close Now</button>
+                                <button class="submit-btn" id="btn-use-schedule" style="background: var(--warning-color);">Use Schedule</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <button class="submit-btn" id="btn-save-schedule">Save Schedule</button>
+                        </div>
+
+                        <div class="form-group">
+                            <small id="current-state" style="color:#555;"></small>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -805,6 +845,9 @@ foreach ($criteria as $criterion) {
             const targetSection = document.getElementById(sectionName + '-section');
             if (targetSection) {
                 targetSection.style.display = 'block';
+                if (sectionName === 'eval_schedule') {
+                    loadEvaluationSchedule();
+                }
             }
         }
 
@@ -1112,6 +1155,97 @@ foreach ($criteria as $criterion) {
         function exportDatabase() {
             if (confirm('This will export the entire database. Continue?')) {
                 window.location.href = 'export_database.php';
+            }
+        }
+
+        // Evaluation Schedule management
+        async function loadEvaluationSchedule() {
+            try {
+                const res = await fetch('manage_evaluation_schedule.php?action=get');
+                const data = await res.json();
+                const msg = document.getElementById('eval-msg');
+                const err = document.getElementById('eval-err');
+                msg.style.display = 'none'; err.style.display = 'none';
+                if (!data.success) { throw new Error(data.message || 'Failed to load'); }
+                const s = data.data || {};
+                // Populate inputs
+                const startAt = s.start_at ? toLocalDatetimeValue(s.start_at) : '';
+                const endAt = s.end_at ? toLocalDatetimeValue(s.end_at) : '';
+                document.getElementById('start_at').value = startAt;
+                document.getElementById('end_at').value = endAt;
+                document.getElementById('notice').value = s.notice || '';
+                updateCurrentStateLabel(s);
+            } catch(e) {
+                const err = document.getElementById('eval-err');
+                err.textContent = e.message || 'Failed to load schedule';
+                err.style.display = 'block';
+            }
+        }
+
+        function toLocalDatetimeValue(mysqlDt) {
+            // mysql to input[type=datetime-local] (assumes server in local time)
+            const d = new Date(mysqlDt.replace(' ', 'T'));
+            const pad = n => (n<10?('0'+n):n);
+            return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+
+        function fromLocalDatetimeValue(val) {
+            // return MySQL DATETIME string
+            if (!val) return '';
+            return val.replace('T', ' ') + ':00';
+        }
+
+        function updateCurrentStateLabel(s) {
+            const lbl = document.getElementById('current-state');
+            if (!lbl) return;
+            const mode = s.override_mode || 'auto';
+            let text = `Override: ${mode.toUpperCase()}`;
+            if (mode === 'auto') {
+                text += ` | Window: ${s.start_at || '—'} to ${s.end_at || '—'}`;
+            }
+            lbl.textContent = text;
+        }
+
+        async function saveEvaluationSchedule() {
+            const fd = new FormData();
+            fd.append('action','save_schedule');
+            fd.append('csrf_token', CSRF_TOKEN);
+            fd.append('start_at', fromLocalDatetimeValue(document.getElementById('start_at').value));
+            fd.append('end_at', fromLocalDatetimeValue(document.getElementById('end_at').value));
+            fd.append('notice', document.getElementById('notice').value);
+            const msg = document.getElementById('eval-msg');
+            const err = document.getElementById('eval-err');
+            msg.style.display = 'none'; err.style.display = 'none';
+            try {
+                const res = await fetch('manage_evaluation_schedule.php', { method:'POST', body: fd });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.message || 'Failed');
+                msg.textContent = data.message || 'Saved';
+                msg.style.display = 'block';
+                loadEvaluationSchedule();
+            } catch(e) {
+                err.textContent = e.message || 'Failed to save';
+                err.style.display = 'block';
+            }
+        }
+
+        async function callOverride(action) {
+            const fd = new FormData();
+            fd.append('action', action);
+            fd.append('csrf_token', CSRF_TOKEN);
+            const msg = document.getElementById('eval-msg');
+            const err = document.getElementById('eval-err');
+            msg.style.display = 'none'; err.style.display = 'none';
+            try {
+                const res = await fetch('manage_evaluation_schedule.php', { method:'POST', body: fd });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.message || 'Failed');
+                msg.textContent = data.message || 'Updated';
+                msg.style.display = 'block';
+                loadEvaluationSchedule();
+            } catch(e) {
+                err.textContent = e.message || 'Failed to update override';
+                err.style.display = 'block';
             }
         }
 
@@ -1478,6 +1612,16 @@ foreach ($criteria as $criterion) {
 
             // Show overview section by default
             showSection('overview');
+
+            // Wire Evaluation Schedule buttons
+            const btnSave = document.getElementById('btn-save-schedule');
+            if (btnSave) btnSave.addEventListener('click', function(e){ e.preventDefault(); saveEvaluationSchedule(); });
+            const btnOpen = document.getElementById('btn-open-now');
+            if (btnOpen) btnOpen.addEventListener('click', function(e){ e.preventDefault(); callOverride('open_now'); });
+            const btnClose = document.getElementById('btn-close-now');
+            if (btnClose) btnClose.addEventListener('click', function(e){ e.preventDefault(); callOverride('close_now'); });
+            const btnAuto = document.getElementById('btn-use-schedule');
+            if (btnAuto) btnAuto.addEventListener('click', function(e){ e.preventDefault(); callOverride('set_auto'); });
         });
 
         // Search/Filter function for users table

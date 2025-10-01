@@ -614,8 +614,9 @@ try {
 
         // View evaluation details
         function viewEvaluation(evaluationId) {
-            // This would open a modal or redirect to detailed view
-            alert('Evaluation details for ID: ' + evaluationId);
+            // Redirect to the evaluation details page
+            if (!evaluationId || isNaN(evaluationId)) return;
+            window.location.href = 'evaluation_details.php?id=' + encodeURIComponent(evaluationId);
         }
 
         // Initialize charts

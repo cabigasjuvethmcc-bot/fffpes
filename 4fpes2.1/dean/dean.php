@@ -9,6 +9,10 @@ $dean = $stmt->fetch();
 // Current dean's department for scoping
 $department = $dean['department'] ?? '';
 
+// Evaluation schedule state and active period for UI control
+list($evalOpen, $evalState, $evalReason, $evalSchedule) = isEvaluationOpenForStudents($pdo);
+$activePeriod = $evalOpen ? getActiveSemesterYear($pdo) : null;
+
 // Get overall statistics (scoped to dean's department)
 $stmt = $pdo->prepare("SELECT 
                         COUNT(DISTINCT e.id) as total_evaluations,
@@ -150,6 +154,21 @@ try {
     }
 } catch (PDOException $e) {
     $criteria_by_category = [];
+}
+
+// Load this dean's submitted evaluations for client filtering and "My Evaluations"
+$my_evaluations = [];
+try {
+    $stmt = $pdo->prepare("SELECT e.id, e.faculty_id, e.subject, e.semester, e.academic_year, e.submitted_at,
+                                   u.full_name AS faculty_name, e.status, e.overall_rating
+                            FROM evaluations e
+                            JOIN faculty f ON e.faculty_id = f.id
+                            JOIN users u ON f.user_id = u.id
+                            WHERE e.status = 'submitted' AND e.evaluator_user_id = ? AND e.evaluator_role = 'dean'");
+    $stmt->execute([$_SESSION['user_id']]);
+    $my_evaluations = $stmt->fetchAll();
+} catch (PDOException $e) {
+    $my_evaluations = [];
 }
 ?>
 
@@ -344,6 +363,7 @@ try {
             <a href="#" onclick="showSection('trends')">Trends & Reports</a>
             <a href="#" onclick="showSection('criteria')">Criteria Analysis</a>
             <a href="#" onclick="showSection('evaluate')">Evaluate Faculty</a>
+            <a href="#" onclick="showSection('my_evals')">My Evaluations</a>
             <a href="#" onclick="showSection('profile')">Profile</a>
             <button class="logout-btn" onclick="logout()">Logout</button>
         </div>
@@ -353,6 +373,17 @@ try {
                 <h1>Welcome, <?php echo htmlspecialchars($dean['full_name']); ?>!</h1>
                 <p>Dean of <?php echo htmlspecialchars($dean['department']); ?> | Faculty Performance Analytics Dashboard</p>
             </div>
+
+            <?php
+                // Banner notice for evaluation state
+                if ($evalOpen) {
+                    $bannerMsg = $evalSchedule['notice'] ?? 'Evaluations are currently OPEN.';
+                    echo '<div class="success-message">' . htmlspecialchars($bannerMsg) . '</div>';
+                } else {
+                    $msg = $evalSchedule['notice'] ?? 'Evaluation is not available for this semester. Please wait for the current evaluation schedule.';
+                    echo '<div class="error-message">' . htmlspecialchars($msg) . '</div>';
+                }
+            ?>
 
             <!-- Overview Section -->
             <div id="overview-section" class="content-section">
@@ -650,7 +681,7 @@ try {
             <!-- Evaluate Faculty Section -->
             <div id="evaluate-section" class="content-section" style="display: none;">
                 <h2>Evaluate Faculty (<?php echo htmlspecialchars($dean['department']); ?> Department)</h2>
-                <form id="dean-eval-form">
+                <form id="dean-eval-form" <?php echo $evalOpen ? '' : 'style="opacity:.6; pointer-events:none;"'; ?>>
                     <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
 
                     <!-- Faculty & Subject Selection -->
@@ -683,16 +714,16 @@ try {
                             </div>
                             <div class="form-control">
                                 <label for="semester">Semester</label>
-                                <select name="semester" id="semester" required>
+                                <select name="semester" id="semester" required disabled>
                                     <option value="">-- Select Semester --</option>
-                                    <option value="1st">1st</option>
-                                    <option value="2nd">2nd</option>
-                                    <option value="Summer">Summer</option>
+                                    <option value="1st Semester" <?php echo ($activePeriod && $activePeriod['semester']==='1st Semester') ? 'selected' : ''; ?>>1st Semester</option>
+                                    <option value="2nd Semester" <?php echo ($activePeriod && $activePeriod['semester']==='2nd Semester') ? 'selected' : ''; ?>>2nd Semester</option>
                                 </select>
+                                <small class="muted-note">Semester is set automatically based on the current evaluation schedule.</small>
                             </div>
                             <div class="form-control">
                                 <label for="academic_year">Academic Year</label>
-                                <input type="text" name="academic_year" id="academic_year" placeholder="e.g., 2025-2026" required />
+                                <input type="text" name="academic_year" id="academic_year" value="<?php echo htmlspecialchars($activePeriod['academic_year'] ?? ''); ?>" placeholder="e.g., 2025-2026" required readonly />
                             </div>
                         </div>
                     </div>
@@ -738,12 +769,47 @@ try {
                     </div>
 
                     <div class="section-card" style="display:flex; align-items:center; justify-content: space-between; gap: 1rem;">
-                        <button type="submit" class="submit-btn">Submit Evaluation</button>
+                        <button type="submit" class="submit-btn" id="dean-submit-btn">Submit Evaluation</button>
                         <p id="eval-status" class="muted-note" style="margin: 0;"></p>
                     </div>
 
                     <p class="muted-note">Dean evaluations are anonymous and flagged as Dean evaluations.</p>
                 </form>
+            </div>
+
+            <!-- My Evaluations Section -->
+            <div id="my_evals-section" class="content-section" style="display: none;">
+                <h2>My Evaluations</h2>
+                <?php if (empty($my_evaluations)): ?>
+                    <p>You haven't submitted any evaluations yet.</p>
+                <?php else: ?>
+                    <table class="performance-table">
+                        <thead>
+                            <tr>
+                                <th>Faculty</th>
+                                <th>Subject</th>
+                                <th>Semester</th>
+                                <th>Academic Year</th>
+                                <th>Overall</th>
+                                <th>Status</th>
+                                <th>Submitted</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($my_evaluations as $ev): ?>
+                            <tr>
+                                <td><?php echo htmlspecialchars($ev['faculty_name']); ?></td>
+                                <td><?php echo htmlspecialchars($ev['subject']); ?></td>
+                                <td><?php echo htmlspecialchars($ev['semester']); ?></td>
+                                <td><?php echo htmlspecialchars($ev['academic_year']); ?></td>
+                                <td><?php echo $ev['overall_rating'] ? number_format($ev['overall_rating'],2) : 'N/A'; ?></td>
+                                <td><?php echo htmlspecialchars(ucfirst($ev['status'])); ?></td>
+                                <td><?php echo $ev['submitted_at'] ? date('M j, Y', strtotime($ev['submitted_at'])) : 'N/A'; ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
             </div>
 
             <!-- Profile Section -->
@@ -788,6 +854,16 @@ try {
     </div>
 
     <script>
+        // Expose dean's own evaluations to the frontend for filtering
+        window.DEAN_EVALS = <?php echo json_encode(array_map(function($e){
+            return [
+                'faculty_id' => (int)$e['faculty_id'],
+                'subject' => $e['subject'],
+                'semester' => $e['semester'],
+                'academic_year' => $e['academic_year']
+            ];
+        }, $my_evaluations)); ?>;
+        window.DEAN_ACTIVE_PERIOD = <?php echo json_encode($activePeriod ?: ['semester'=>null,'academic_year'=>null]); ?>;
         // Navigation functions
         function showSection(sectionName) {
             const sections = document.querySelectorAll('.content-section');
@@ -913,16 +989,56 @@ try {
                         statusEl.textContent = data.message || 'Evaluation submitted.';
                         statusEl.style.color = 'var(--secondary-color)';
                         deanEvalForm.reset();
+                        // Add to in-memory list and hide evaluated faculty going forward
+                        try {
+                            const fId = parseInt((formData.get('faculty_id')||'0'),10);
+                            const subj = (formData.get('subject')||'')+'';
+                            const sem = (window.DEAN_ACTIVE_PERIOD && window.DEAN_ACTIVE_PERIOD.semester) || deanSemEl.value;
+                            const ay = (window.DEAN_ACTIVE_PERIOD && window.DEAN_ACTIVE_PERIOD.academic_year) || deanAyEl.value;
+                            if (!window.DEAN_EVALS) window.DEAN_EVALS = [];
+                            window.DEAN_EVALS.push({ faculty_id: fId, subject: subj, semester: sem, academic_year: ay });
+                            updateDeanFacultyOptions();
+                        } catch(_){} 
                     } else {
                         statusEl.textContent = data.message || 'Submission failed.';
                         statusEl.style.color = 'var(--danger-color)';
                     }
                 })
-                .catch(err => {
                     statusEl.textContent = 'An error occurred while submitting.';
                     statusEl.style.color = 'var(--danger-color)';
                 });
             });
+        }
+
+        // Hide dean options already evaluated for same subject & period
+        const deanFacultySel = document.getElementById('faculty_id');
+        const deanSubjectEl = document.getElementById('subject');
+        const deanSemEl = document.getElementById('semester');
+        const deanAyEl = document.getElementById('academic_year');
+        function updateDeanFacultyOptions(){
+            if (!deanFacultySel) return;
+            const subj = deanSubjectEl ? ((deanSubjectEl.tagName === 'SELECT') ? deanSubjectEl.value : deanSubjectEl.value) : '';
+            const sem = deanSemEl ? deanSemEl.value : '';
+            const ay = deanAyEl ? deanAyEl.value : '';
+            const evals = window.DEAN_EVALS || [];
+            Array.from(deanFacultySel.options).forEach((opt, idx) => {
+                if (idx === 0) return; // placeholder
+                opt.style.display = '';
+                const fId = parseInt(opt.value || '0', 10);
+                const dup = evals.some(ev => ev.faculty_id === fId && (!subj || ev.subject === subj) && (!sem || ev.semester === sem) && (!ay || ev.academic_year === ay));
+                if (dup) {
+                    opt.style.display = 'none';
+                    if (deanFacultySel.value === opt.value) {
+                        deanFacultySel.value = '';
+                    }
+                }
+            });
+        }
+        if (deanFacultySel) {
+            updateDeanFacultyOptions();
+            if (deanSubjectEl) deanSubjectEl.addEventListener('change', updateDeanFacultyOptions);
+            if (deanSemEl) deanSemEl.addEventListener('change', updateDeanFacultyOptions);
+            if (deanAyEl) deanAyEl.addEventListener('input', updateDeanFacultyOptions);
         }
 
         // Initialize charts
