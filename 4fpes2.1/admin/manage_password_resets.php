@@ -1,47 +1,10 @@
 <?php
-// TEMP: strengthen error visibility during debugging (remove after)
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-// TEMP: send no-cache headers and invalidate opcache for this file
-if (!headers_sent()) {
-    @header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-    @header('Pragma: no-cache');
-}
-if (function_exists('opcache_invalidate')) { @opcache_invalidate(__FILE__, true); }
 require_once __DIR__ . '/../config.php';
-// Inline access check with diagnostic (temporary)
-if (!isLoggedIn()) {
-    header('Location: /4fpes2.1/index.php');
-    exit();
-}
-$__role = $_SESSION['role'] ?? '';
-if (strtolower($__role) !== 'admin') {
-    // Show a small inline message instead of blank page
-    if (!headers_sent()) { echo "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>Access</title></head><body>"; }
-    echo '<div style="margin:16px; padding:12px; background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; font:14px/1.4 sans-serif;">Access denied. Current role: <b>' . htmlspecialchars($__role) . '</b>. Admin role required.</div>';
-    echo '</body></html>';
-    exit();
-}
 
-// TEMP DEBUG: confirm script execution and surface fatal errors
-$__ts = date('Y-m-d H:i:s');
-echo "<!-- MANAGE_RESETS_LOADED $__ts -->\n";
-if (function_exists('error_log')) {
-    @error_log("MANAGE_RESETS_LOADED $__ts - " . ($_SERVER['REQUEST_URI'] ?? ''));
-}
-if (!headers_sent()) {
-    register_shutdown_function(function () {
-        $e = error_get_last();
-        if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
-            echo "<pre style=\"position:fixed;left:8px;bottom:8px;z-index:999999;background:#fff3cd;color:#111;border:1px solid #ffeeba;padding:8px;border-radius:6px;max-width:95%;max-height:40vh;overflow:auto;font:12px/1.4 monospace;\">";
-            echo "Shutdown fatal error:\n" . htmlspecialchars(print_r($e, true));
-            echo "</pre>";
-        }
-    });
-}
+// Access control
+requireRole('admin');
 
-// Ensure table exists (in case schema hasn't been updated yet)
+// Ensure table exists (safety)
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS password_reset_requests (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -50,25 +13,45 @@ try {
         status ENUM('Pending','Resolved') DEFAULT 'Pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-} catch (PDOException $e) {
-    // noop
-}
+} catch (PDOException $e) { /* ignore */ }
 
-// Fetch all requests (with error handling)
+// Backward compatibility: add role column if table was created previously without it
 try {
-    $stmt = $pdo->query("SELECT id, identifier, role, status, created_at FROM password_reset_requests ORDER BY status ASC, created_at DESC");
+    $colCheck = $pdo->prepare("SELECT COUNT(*) AS c FROM information_schema.columns WHERE table_schema = ? AND table_name = 'password_reset_requests' AND column_name = 'role'");
+    $colCheck->execute([DB_NAME]);
+    $hasRole = (int)($colCheck->fetch()['c'] ?? 0) > 0;
+    if (!$hasRole) {
+        // Add as NULL-able to avoid failing on existing rows; new inserts should provide a role
+        $pdo->exec("ALTER TABLE password_reset_requests ADD COLUMN role ENUM('Student','Faculty','Dean') NULL AFTER identifier");
+        // Optional: set a default status if missing (defensive)
+    }
+} catch (PDOException $e) { /* ignore */ }
+
+// Fetch requests joined with users to get user_id and full_name via role-specific identifiers
+try {
+    $sql = "
+        SELECT pr.id AS request_id, pr.identifier, pr.role,
+               pr.status, pr.created_at,
+               u.id AS user_id, u.full_name
+        FROM password_reset_requests pr
+        LEFT JOIN students s   ON (pr.role = 'Student' AND s.student_id = pr.identifier)
+        LEFT JOIN faculty f    ON (pr.role = 'Faculty' AND f.employee_id = pr.identifier)
+        LEFT JOIN deans d      ON (pr.role = 'Dean'    AND d.employee_id = pr.identifier)
+        LEFT JOIN users u      ON (
+             (pr.role = 'Student' AND u.id = s.user_id)
+          OR (pr.role = 'Faculty' AND u.id = f.user_id)
+          OR (pr.role = 'Dean'    AND u.id = d.user_id)
+        )
+        ORDER BY pr.status ASC, pr.created_at DESC
+    ";
+    $stmt = $pdo->query($sql);
     $requests = $stmt->fetchAll();
 } catch (PDOException $e) {
     $requests = [];
     $admin_error = 'Database error while fetching requests: ' . $e->getMessage();
-    if (function_exists('error_log')) {
-        @error_log('manage_password_resets: select failed - ' . $e->getMessage());
-    }
 }
 
 $csrf = generateCSRFToken();
-// TEMP: request count marker for diagnostics
-$__req_count = is_array($requests) ? count($requests) : (is_object($requests) ? 'obj' : (isset($requests) ? 'unknown' : 'unset'));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -77,98 +60,201 @@ $__req_count = is_array($requests) ? count($requests) : (is_object($requests) ? 
   <title>Password Reset Requests</title>
   <link rel="stylesheet" href="../styles.css">
   <style>
-    /* Page-scoped visibility hardening to avoid blank look */
-    html, body { color:#111 !important; background: var(--bg-color, #f8fafc); }
-    .container, .container *, .table, .table * { visibility: visible !important; opacity: 1 !important; color:#111 !important; }
-    .actions { display:flex; gap:0.5rem; }
-    .btn { padding:0.5rem 0.8rem; border:none; border-radius:6px; cursor:pointer; font-weight:600; }
-    .btn-reset { background: var(--warning-color); color:#fff; }
-    .btn-resolve { background: var(--secondary-color); color:#fff; }
-    .btn-disabled { opacity:0.6; cursor:not-allowed; }
-    .container { max-width: 1100px; margin: 2rem auto; background:#fff; border-radius:12px; box-shadow: var(--card-shadow); padding: 16px; }
+    body { background: var(--bg-color); }
+    .page-wrap { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
     .header { display:flex; justify-content: space-between; align-items:center; margin-bottom:1rem; }
-    .back-link { text-decoration:none; }
-    .table { width:100%; border-collapse: collapse; background:#fff; border-radius:12px; overflow:hidden; box-shadow: var(--card-shadow); border:1px solid #e5e7eb; }
-    .table th, .table td { padding: 0.85rem 1rem; border-bottom: 1px solid #e1e5e9; text-align:left; }
-    .badge { padding:4px 10px; border-radius:14px; font-size:0.85rem; }
-    .badge-pending { background:#ffe9c4; color:#7a4b00; }
-    .badge-resolved { background:#daf5d9; color:#0f6b1b; }
+    .back-link { text-decoration:none; color: var(--dark-color); }
+
+    /* Card wrapper consistent with admin modules */
+    .management-section { background:#fff; padding: 1.25rem; border-radius: 12px; box-shadow: var(--card-shadow); }
+    .filters { display:flex; gap:.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .filters input, .filters select { padding:.6rem .8rem; border:2px solid #e1e5e9; border-radius:8px; background:#fff; }
+
+    /* Table styles consistent with users-table */
+    .users-table { width:100%; border-collapse: collapse; }
+    .users-table th, .users-table td { padding: 0.85rem 1rem; text-align:left; border-bottom:1px solid #e1e5e9; }
+    .users-table th { background: var(--bg-color); font-weight:600; }
+
+    .role-badge { padding: 0.25rem 0.65rem; border-radius: 16px; font-size:.85rem; font-weight:600; color:#fff; }
+    .role-Student { background: var(--primary-color); }
+    .role-Faculty { background: var(--secondary-color); }
+    .role-Dean { background: var(--warning-color); }
+
+    .status-badge { padding:.25rem .6rem; border-radius: 16px; font-size:.85rem; font-weight:600; }
+    .status-Pending { background:#fff4e5; color:#8a5a00; }
+    .status-Resolved { background:#e7f8ef; color:#0b6b3a; }
+
+    .actions { display:flex; gap:.5rem; flex-wrap: wrap; }
+    .btn { padding:0.45rem 0.75rem; border:none; border-radius:8px; cursor:pointer; font-weight:600; transition: var(--transition); }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
+    .btn-green { background: var(--primary-color); color:#fff; }
+    .btn-green:hover { background: var(--primary-dark); }
+    .btn-red { background: var(--danger-color); color:#fff; }
+    .btn-red:hover { background: var(--danger-dark); }
+    .btn-gray { background:#e5e7eb; color:#111; }
+
+    /* Responsive table */
+    .table-wrap { width:100%; overflow-x:auto; }
   </style>
 </head>
   <body>
-    <div class="container">
-      <div class="header">
-        <h2>Password Reset Requests</h2>
-        <div>
-          <a class="back-link" href="admin.php">← Back to Admin Dashboard</a>
-        </div>
+    <div class="dashboard">
+      <div class="sidebar">
+        <h2>Admin Portal</h2>
+        <a href="admin.php#overview">System Overview</a>
+        <a href="admin.php#users">User Management</a>
+        <a href="admin.php#criteria">Evaluation Criteria</a>
+        <a href="admin.php#reports">System Reports</a>
+        <a href="admin.php#eval_schedule">Manage Evaluation Schedule</a>
+        <a href="manage_password_resets.php" style="background: var(--primary-color); color:#fff;">Password Reset Requests</a>
+        <a href="admin.php#settings">Settings</a>
+        <button class="logout-btn" onclick="window.location.href='../auth.php?action=logout'">Logout</button>
       </div>
 
-      
+      <div class="main-content">
+        <div class="header">
+          <h2>Password Reset Requests</h2>
+        </div>
 
-      <table class="table">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Identifier</th>
-          <th>Role</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php if (isset($admin_error)): ?>
-          <tr><td colspan="6" style="color:#7c2d12; background:#fffbeb; border:1px solid #fcd34d; padding:12px;">Error: <?php echo htmlspecialchars($admin_error); ?></td></tr>
+        <?php if (isset($_GET['reset']) && $_GET['reset'] === 'invalid'): ?>
+          <div class="error-message" style="display:block; margin-bottom:1rem;">Invalid reset request. Please try again.</div>
         <?php endif; ?>
-        <?php if (!$requests): ?>
-          <tr><td colspan="6" style="text-align:center; padding:1rem; color:#666;">No requests found</td></tr>
-        <?php else: ?>
-          <?php foreach ($requests as $r): ?>
-            <tr>
-              <td style="border-bottom:1px solid #f3f4f6; padding:8px;"><?php echo (int)$r['id']; ?></td>
-              <td style="border-bottom:1px solid #f3f4f6; padding:8px;"><?php echo htmlspecialchars($r['identifier']); ?></td>
-              <td style="border-bottom:1px solid #f3f4f6; padding:8px;"><?php echo htmlspecialchars($r['role']); ?></td>
-              <td style="border-bottom:1px solid #f3f4f6; padding:8px;"><?php echo htmlspecialchars(date('Y-m-d H:i', strtotime($r['created_at']))); ?></td>
-              <td style="border-bottom:1px solid #f3f4f6; padding:8px;">
-                <?php if ($r['status'] === 'Resolved'): ?>
-                  <span class="badge badge-resolved" style="background:#daf5d9; color:#0f6b1b; padding:4px 10px; border-radius:14px;">Resolved</span>
-                <?php else: ?>
-                  <span class="badge badge-pending" style="background:#ffe9c4; color:#7a4b00; padding:4px 10px; border-radius:14px;">Pending</span>
+        <?php if (isset($_GET['reset']) && $_GET['reset'] === 'error'): ?>
+          <div class="error-message" style="display:block; margin-bottom:1rem;">An error occurred while resetting the password. Please check logs and try again.</div>
+        <?php endif; ?>
+
+        <div class="management-section">
+          <div class="filters">
+          <input type="text" id="searchBox" placeholder="Search by name, identifier or user ID..." />
+          <select id="roleFilter">
+            <option value="">All Roles</option>
+            <option>Student</option>
+            <option>Faculty</option>
+            <option>Dean</option>
+          </select>
+          <select id="statusFilter">
+            <option value="">All Status</option>
+            <option>Pending</option>
+            <option>Resolved</option>
+          </select>
+          <button class="btn btn-gray" onclick="window.location.reload()">Refresh</button>
+          </div>
+
+          <div class="table-wrap">
+            <table class="users-table" id="resetTable">
+              <thead>
+                <tr>
+                  <th>User ID</th>
+                  <th>Full Name</th>
+                  <th>Role</th>
+                  <th>Request Date</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php if (isset($admin_error)): ?>
+                  <tr><td colspan="7">Error: <?php echo htmlspecialchars($admin_error); ?></td></tr>
                 <?php endif; ?>
-              </td>
-              <td style="border-bottom:1px solid #f3f4f6; padding:8px;">
-                <div class="actions" style="display:flex; gap:8px;">
-                  <form method="POST" action="reset_password.php" onsubmit="return confirm('Reset password to 123?');">
-                    <input type="hidden" name="csrf_token" value="<?php echo $csrf; ?>">
-                    <input type="hidden" name="request_id" value="<?php echo (int)$r['id']; ?>">
-                    <input type="hidden" name="identifier" value="<?php echo htmlspecialchars($r['identifier']); ?>">
-                    <input type="hidden" name="role" value="<?php echo htmlspecialchars($r['role']); ?>">
-                    <button class="btn btn-reset<?php echo $r['status']==='Resolved' ? ' btn-disabled' : ''; ?>" <?php echo $r['status']==='Resolved' ? 'disabled' : ''; ?> type="submit" style="background:#f59e0b; color:#fff; border:none; padding:6px 10px; border-radius:6px;">Reset to 123</button>
-                  </form>
-                  <form method="POST" action="mark_resolved.php" onsubmit="return confirm('Mark as resolved?');">
-                    <input type="hidden" name="csrf_token" value="<?php echo $csrf; ?>">
-                    <input type="hidden" name="request_id" value="<?php echo (int)$r['id']; ?>">
-                    <button class="btn btn-resolve<?php echo $r['status']==='Resolved' ? ' btn-disabled' : ''; ?>" <?php echo $r['status']==='Resolved' ? 'disabled' : ''; ?> type="submit" style="background:#10b981; color:#fff; border:none; padding:6px 10px; border-radius:6px;">Mark Resolved</button>
-                  </form>
-                </div>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-        <?php endif; ?>
-      </tbody>
-    </table>
-    <div style="margin-top:8px; font:12px/1.2 monospace; color:#374151;">CONTAINER INNER MARKER (below table)</div>
-  </div>
-  <script>
-    (function(){
-      const c = document.getElementById('admin-reset-container');
-      if (c) {
-        console.log('[manage_password_resets] container childElementCount=', c.childElementCount, 'innerHTML length=', (c.innerHTML||'').length);
-        c.style.display = 'block';
-        c.style.visibility = 'visible';
-        c.style.opacity = '1';
-      }
-    })();
-  </script>
-</body>
-</html>
+                <?php if (!$requests): ?>
+                  <tr><td colspan="7" style="text-align:center; color:#6b7280;">No requests found</td></tr>
+                <?php else: ?>
+                  <?php foreach ($requests as $r): ?>
+                    <tr data-role="<?php echo htmlspecialchars($r['role']); ?>" data-status="<?php echo htmlspecialchars($r['status']); ?>">
+                      <td><?php echo $r['user_id'] ? (int)$r['user_id'] : '—'; ?></td>
+                      <td><?php echo $r['full_name'] ? htmlspecialchars($r['full_name']) : 'Unknown'; ?></td>
+                      <td>
+                        <span class="role-badge role-<?php echo htmlspecialchars($r['role']); ?>"><?php echo htmlspecialchars($r['role']); ?></span>
+                      </td>
+                      <td><?php echo htmlspecialchars(date('Y-m-d H:i', strtotime($r['created_at']))); ?></td>
+                      <td><span class="status-badge status-<?php echo htmlspecialchars($r['status']); ?>"><?php echo htmlspecialchars($r['status']); ?></span></td>
+                      <td>
+                        <div class="actions">
+                        <form method="POST" action="reset_password.php">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrf; ?>">
+                          <input type="hidden" name="request_id" value="<?php echo (int)$r['request_id']; ?>">
+                          <input type="hidden" name="identifier" value="<?php echo htmlspecialchars($r['identifier']); ?>">
+                          <input type="hidden" name="role" value="<?php echo htmlspecialchars($r['role']); ?>">
+                          <button class="btn btn-green" <?php echo $r['status']==='Resolved' ? 'disabled' : ''; ?> type="submit">Approve & Reset</button>
+                        </form>
+                        <form method="POST" action="mark_resolved.php" onsubmit="return confirm('Mark this request as resolved?');">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrf; ?>">
+                          <input type="hidden" name="request_id" value="<?php echo (int)$r['request_id']; ?>">
+                          <button class="btn btn-green" <?php echo $r['status']==='Resolved' ? 'disabled' : ''; ?> type="submit">Mark Resolved</button>
+                        </form>
+                        <form method="POST" action="delete_reset_request.php">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrf; ?>">
+                          <input type="hidden" name="request_id" value="<?php echo (int)$r['request_id']; ?>">
+                          <button class="btn btn-red" type="submit">Remove</button>
+                        </form>
+                      </td>
+                    </tr>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div id="successModal" class="modal" style="display:none; position:fixed; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,.5); z-index:1000;">
+      <div class="modal-content" style="background:#fff; margin:10% auto; padding:1.5rem; border-radius:12px; width:90%; max-width:420px; text-align:center; box-shadow: var(--card-shadow-hover);">
+        <h3 style="margin-bottom:.5rem;">Password Reset</h3>
+        <p style="color:#374151; margin-bottom:1rem;">Password has been reset to default (123).</p>
+        <button id="modalCloseBtn" class="btn btn-green">OK</button>
+      </div>
+    </div>
+
+    <script>
+      // Client-side filtering/search
+      (function(){
+        const q = document.getElementById('searchBox');
+        const role = document.getElementById('roleFilter');
+        const status = document.getElementById('statusFilter');
+        const tbody = document.querySelector('#resetTable tbody');
+
+        function applyFilters(){
+          const term = (q.value || '').toLowerCase();
+          const rf = role.value;
+          const sf = status.value;
+          Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
+            const text = tr.textContent.toLowerCase();
+            const matchTerm = !term || text.includes(term);
+            const matchRole = !rf || tr.getAttribute('data-role') === rf;
+            const matchStatus = !sf || tr.getAttribute('data-status') === sf;
+            tr.style.display = (matchTerm && matchRole && matchStatus) ? '' : 'none';
+          });
+        }
+
+        ['input','change'].forEach(evt => {
+          q.addEventListener(evt, applyFilters);
+          role.addEventListener(evt, applyFilters);
+          status.addEventListener(evt, applyFilters);
+        });
+      })();
+
+      // Success modal if redirected with ?reset=success
+      (function(){
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('reset') === 'success') {
+          const m = document.getElementById('successModal');
+          const b = document.getElementById('modalCloseBtn');
+          m.style.display = 'block';
+          // On OK, reload to reflect updated request status and clear query param
+          b.addEventListener('click', ()=>{
+            window.location.href = 'manage_password_resets.php';
+          });
+          m.addEventListener('click', (e)=>{ if(e.target===m) m.style.display='none'; });
+          // Safety: auto-refresh after 1.5s if user doesn't click OK
+          setTimeout(()=>{
+            if (m.style.display === 'block') {
+              window.location.href = 'manage_password_resets.php';
+            }
+          }, 1500);
+        }
+      })();
+    </script>
+  </body>
+  </html>
