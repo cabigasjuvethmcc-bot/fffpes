@@ -47,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             overall_rating DECIMAL(3,2) NULL,
             overall_comments TEXT NULL,
             submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY uniq_self_eval (faculty_id, subject_code, semester, academic_year),
+            UNIQUE KEY uniq_self_eval (faculty_id, subject_code, subject_name, semester, academic_year),
             FOREIGN KEY (faculty_id) REFERENCES faculty(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         $pdo->exec("CREATE TABLE IF NOT EXISTS self_evaluation_responses (
@@ -76,8 +76,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Prevent duplicate self-evaluation for the same subject/term/year
-        $stmt = $pdo->prepare("SELECT id FROM self_evaluation WHERE faculty_id = ? AND subject_code = ? AND semester = ? AND academic_year = ? LIMIT 1");
-        $stmt->execute([$faculty_id, $subject_code, $semester, $academic_year]);
+        // Handle subjects that may not have a code (empty subject_code) by falling back to subject_name
+        $stmt = $pdo->prepare("SELECT id FROM self_evaluation 
+                               WHERE faculty_id = ? 
+                                 AND ((subject_code <> '' AND subject_code = ?) OR (subject_code = '' AND subject_name = ?))
+                                 AND semester = ? AND academic_year = ?
+                               LIMIT 1");
+        $stmt->execute([$faculty_id, $subject_code, $subject_name, $semester, $academic_year]);
         if ($stmt->fetch()) {
             throw new Exception('You have already submitted a self-evaluation for this subject and term.');
         }

@@ -129,6 +129,28 @@ try {
 } catch (PDOException $e) {
     $criteria = [];
 }
+
+// Build self-evaluation status per assigned subject for current active term (if any)
+$self_eval_status = [];
+try {
+    // Load all self evaluations for this faculty for the active period (if available)
+    $params = [$_SESSION['faculty_id']];
+    $where = ["faculty_id = ?"];
+    if (!empty($activePeriod['semester'])) { $where[] = 'semester = ?'; $params[] = $activePeriod['semester']; }
+    if (!empty($activePeriod['academic_year'])) { $where[] = 'academic_year = ?'; $params[] = $activePeriod['academic_year']; }
+    $wsql = implode(' AND ', $where);
+    $seStmt2 = $pdo->prepare("SELECT subject_code, subject_name FROM self_evaluation WHERE $wsql");
+    $seStmt2->execute($params);
+    $rows = $seStmt2->fetchAll();
+    foreach ($rows as $r) {
+        $code = trim((string)$r['subject_code']);
+        $name = trim((string)$r['subject_name']);
+        $key = ($code !== '' ? $code : 'NO_CODE') . '||' . mb_strtolower($name);
+        $self_eval_status[$key] = true;
+    }
+} catch (PDOException $e) {
+    $self_eval_status = [];
+}
 ?>
 
 <!DOCTYPE html>
@@ -543,6 +565,41 @@ try {
                         </div>
                     </div>
                 </div>
+
+                <!-- Self-Evaluation Status (Active Term) -->
+                <?php if (!empty($subjects)): ?>
+                <div class="chart-container">
+                    <h3>Self-Evaluation Status<?php echo $activePeriod ? ' — '.htmlspecialchars($activePeriod['semester'].' '.$activePeriod['academic_year']) : ''; ?></h3>
+                    <table class="evaluations-table">
+                        <thead>
+                            <tr>
+                                <th>Subject</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($subjects as $s): 
+                                $code = trim((string)$s['subject_code']);
+                                $name = trim((string)$s['subject_name']);
+                                $key = ($code !== '' ? $code : 'NO_CODE') . '||' . mb_strtolower($name);
+                                $done = !empty($self_eval_status[$key]);
+                            ?>
+                            <tr>
+                                <td><?php echo htmlspecialchars(($code ? $code.' - ' : '').$name); ?></td>
+                                <td>
+                                    <?php if ($done): ?>
+                                        <span class="rating-badge" style="background: var(--secondary-color); color:white;">Evaluated</span>
+                                    <?php else: ?>
+                                        <span class="rating-badge" style="background: var(--danger-color); color:white;">Pending</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    <small class="muted-note">Status reflects submissions for the active evaluation period<?php echo $activePeriod ? '' : ' (no active period detected)'; ?>.</small>
+                </div>
+                <?php endif; ?>
 
                 <!-- Summary Stats -->
                 <div class="stats-grid">

@@ -56,6 +56,12 @@ $grouped_criteria = [];
 foreach ($criteria as $criterion) {
     $grouped_criteria[$criterion['category']][] = $criterion;
 }
+
+// Determine permissions and schedule state for UI logic
+$deptAdminList = ['Business','Education','Technology'];
+$adminDept = $_SESSION['department'] ?? '';
+$isSystemAdmin = !in_array($adminDept, $deptAdminList, true);
+list($evalOpen, $evalState,) = isEvaluationOpenForStudents($pdo);
 ?>
 
 <!DOCTYPE html>
@@ -286,6 +292,7 @@ foreach ($criteria as $criterion) {
             <h2>Admin Portal</h2>
             <a href="#overview">System Overview</a>
             <a href="#users">User Management</a>
+            <a href="#bulk_upload">Bulk Upload</a>
             <a href="#criteria">Evaluation Criteria</a>
             <!-- Manage Subjects removed: handled by Department Admin -->
             <a href="#reports">System Reports</a>
@@ -337,6 +344,7 @@ foreach ($criteria as $criterion) {
                         <button class="submit-btn" onclick="openAddUserModal()">Add New User</button>
                         <button class="submit-btn" onclick="openAddCriterionModal()">Add Evaluation Criterion</button>
                         <button class="submit-btn" onclick="generateSystemReport()">Generate System Report</button>
+                        <a class="submit-btn" href="#bulk_upload" style="text-decoration:none; display:inline-block; text-align:center;">Bulk Upload Users</a>
                     </div>
                 </div>
             </div>
@@ -372,7 +380,10 @@ foreach ($criteria as $criterion) {
                 <div class="management-section">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                         <h3>All Users</h3>
-                        <button class="submit-btn" onclick="openAddUserModal()">Add New User</button>
+                        <div class="action-buttons">
+                            <button class="submit-btn" onclick="openAddUserModal()">Add New User</button>
+                            <a class="submit-btn" href="#bulk_upload" style="text-decoration:none; display:inline-block; text-align:center;">Bulk Upload</a>
+                        </div>
                     </div>
                     
                     <div class="search-container">
@@ -440,6 +451,11 @@ foreach ($criteria as $criterion) {
                         <h3>Evaluation Criteria</h3>
                         <button class="submit-btn" onclick="openAddCriterionModal()">Add New Criterion</button>
                     </div>
+                    <?php if ($evalOpen): ?>
+                        <div class="error-message" style="display:block;">
+                            Cannot delete while evaluation is ongoing. Close the evaluation schedule to delete criteria.
+                        </div>
+                    <?php endif; ?>
                     
                     <?php foreach ($grouped_criteria as $category => $category_criteria): ?>
                         <div class="criteria-category-header">
@@ -457,7 +473,11 @@ foreach ($criteria as $criterion) {
                                 </div>
                                 <div class="action-buttons">
                                     <button class="btn-small btn-edit" onclick="editCriterion(<?php echo $criterion['id']; ?>)">Edit</button>
-                                    <button class="btn-small btn-delete" onclick="deleteCriterion(<?php echo $criterion['id']; ?>)">Delete</button>
+                                    <?php if ($isSystemAdmin && !$evalOpen): ?>
+                                        <button class="btn-small btn-delete" onclick="deleteCriterion(<?php echo $criterion['id']; ?>)">Delete</button>
+                                    <?php else: ?>
+                                        <button class="btn-small btn-delete" disabled title="<?php echo $isSystemAdmin ? 'Cannot delete while evaluation is ongoing' : 'Only System Admin can delete criteria'; ?>">Delete</button>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                         <?php endforeach; ?>
@@ -477,6 +497,20 @@ foreach ($criteria as $criterion) {
                         <button class="submit-btn" onclick="generatePerformanceReport()">Faculty Performance Report</button>
                         <button class="submit-btn" onclick="exportDatabase()">Export Database</button>
                     </div>
+                </div>
+            </div>
+
+            <!-- Bulk Upload (Embedded) Section -->
+            <div id="bulk_upload-section" class="content-section" style="display:none;">
+                <h2>Bulk Upload</h2>
+                <div class="management-section" style="padding:0;">
+                    <iframe 
+                        id="bulk-upload-frame"
+                        src="../bulk_upload.php?embed=1"
+                        style="width:100%; height:80vh; border:0; border-radius:12px; background:#fff;"
+                        loading="lazy"
+                        title="Bulk Upload"
+                    ></iframe>
                 </div>
             </div>
 
@@ -831,6 +865,14 @@ foreach ($criteria as $criterion) {
                         a.classList.remove('active');
                     }
                 });
+                // Lazy-reload embedded frame on first open to ensure fresh CSRF/form state
+                if (sectionName === 'bulk_upload') {
+                    const frame = document.getElementById('bulk-upload-frame');
+                    if (frame && !frame.dataset.loadedOnce) {
+                        frame.src = frame.src; // trigger refresh once
+                        frame.dataset.loadedOnce = '1';
+                    }
+                }
             }
         }
 
@@ -1068,10 +1110,10 @@ foreach ($criteria as $criterion) {
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        alert('Criterion deleted successfully!');
+                        alert(data.message || 'Criterion deleted successfully!');
                         location.reload();
                     } else {
-                        alert('Error deleting criterion: ' + data.message);
+                        alert('Error deleting criterion: ' + (data.message || 'Failed'));
                     }
                 })
                 .catch(error => {

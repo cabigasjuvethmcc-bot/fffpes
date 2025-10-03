@@ -962,11 +962,81 @@ try {
 
         // Export functions
         function exportToCSV() {
-            alert('CSV export functionality would be implemented here');
+            try {
+                const table = document.getElementById('faculty_table');
+                if (!table) { alert('Faculty table not found.'); return; }
+
+                // Collect headers
+                const headers = [];
+                const ths = table.querySelectorAll('thead th');
+                ths.forEach(th => headers.push(cleanCell(th.textContent)));
+
+                // Collect rows
+                const rows = [headers];
+                const trs = table.querySelectorAll('tbody tr');
+                trs.forEach(tr => {
+                    const row = [];
+                    tr.querySelectorAll('td').forEach(td => {
+                        // If cell has badge/span, take its text
+                        row.push(cleanCell(td.textContent));
+                    });
+                    rows.push(row);
+                });
+
+                // Convert to CSV
+                const csv = rows.map(r => r.map(escapeCSV).join(',')).join('\r\n');
+
+                // Add BOM for Excel compatibility
+                const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const now = new Date();
+                const ts = now.toISOString().slice(0,19).replace(/[:T]/g,'-');
+                a.href = url;
+                a.download = `faculty_performance_${ts}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                console.error('CSV export failed:', e);
+                alert('Failed to export CSV.');
+            }
+
+            function cleanCell(text){
+                return (text || '').replace(/\s+/g, ' ').trim();
+            }
+            function escapeCSV(val){
+                if (val == null) return '';
+                const s = String(val);
+                if (/[",\n]/.test(s)) {
+                    return '"' + s.replace(/"/g, '""') + '"';
+                }
+                return s;
+            }
         }
 
         function generateReport() {
-            alert('Report generation functionality would be implemented here');
+            const table = document.getElementById('faculty_table');
+            if (!table) { alert('Faculty table not found.'); return; }
+            const w = window.open('', '_blank');
+            const style = `
+                <style>
+                    body { font-family: Arial, sans-serif; padding: 16px; }
+                    h2 { margin-top: 0; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                    th { background: #f3f4f6; }
+                </style>`;
+            w.document.write('<html><head><title>Faculty Performance Report</title>' + style + '</head><body>');
+            w.document.write('<h2>Faculty Performance Report</h2>');
+            w.document.write('<div><em>Generated: ' + new Date().toLocaleString() + '</em></div><br>');
+            w.document.write(table.outerHTML);
+            w.document.write('</body></html>');
+            w.document.close();
+            w.focus();
+            // Give the new window a tick to render before printing
+            setTimeout(() => { try { w.print(); } catch (_) {} }, 250);
         }
 
         // Handle dean evaluation form submit

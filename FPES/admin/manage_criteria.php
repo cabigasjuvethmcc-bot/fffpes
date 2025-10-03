@@ -58,20 +58,29 @@ try {
                 echo json_encode(['success' => false, 'message' => 'Invalid criterion ID']);
                 exit();
             }
-            
-            // Check if criterion is being used in evaluations
-            $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM evaluation_responses WHERE criterion_id = ?");
-            $stmt->execute([$id]);
-            $usage_count = $stmt->fetch()['count'];
-            
-            if ($usage_count > 0) {
-                echo json_encode(['success' => false, 'message' => 'Cannot delete criterion that is being used in evaluations. Consider deactivating it instead.']);
+
+            // Only System Admins may delete criteria
+            $deptAdminList = ['Business','Education','Technology'];
+            $adminDept = $_SESSION['department'] ?? '';
+            $isSystemAdmin = !in_array($adminDept, $deptAdminList, true);
+            if (!$isSystemAdmin) {
+                echo json_encode(['success' => false, 'message' => 'Only System Admin can delete evaluation criteria.']);
+                exit();
+            }
+
+            // Prevent deletion while evaluation is open
+            list($isOpen,) = isEvaluationOpenForStudents($pdo);
+            if ($isOpen) {
+                echo json_encode(['success' => false, 'message' => 'Cannot delete while evaluation is open. Close the evaluation schedule first.']);
                 exit();
             }
             
+            // With schedule closed, allow hard delete even if used historically.
+            // Remove dependent responses first for safety in environments without ON DELETE CASCADE.
+            $stmt = $pdo->prepare("DELETE FROM evaluation_responses WHERE criterion_id = ?");
+            $stmt->execute([$id]);
             $stmt = $pdo->prepare("DELETE FROM evaluation_criteria WHERE id = ?");
             $stmt->execute([$id]);
-            
             echo json_encode(['success' => true, 'message' => 'Evaluation criterion deleted successfully']);
             break;
             

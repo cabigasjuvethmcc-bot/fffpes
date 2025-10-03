@@ -370,6 +370,9 @@ $colors = $dept_colors[$admin_department] ?? $dept_colors['Technology'];
             <a href="departments/<?php echo strtolower($admin_department); ?>/enrollment.php">
                 <i class="fas fa-user-plus"></i> Enroll Student
             </a>
+            <a href="bulk_upload.php">
+                <i class="fas fa-file-upload"></i> Bulk Upload
+            </a>
             <a href="departments/<?php echo strtolower($admin_department); ?>/student_management.php">
                 <i class="fas fa-users-cog"></i> Manage Students
             </a>

@@ -54,23 +54,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Invalid role selected');
             }
             
-            // Helper to generate next Employee ID per role using the employees table (Faculty: F-###, Dean: D-###)
-            $generateEmployeeId = function(PDO $pdo, string $role): string {
-                $roleMap = [
-                    'faculty' => ['prefix' => 'F-', 'enum' => 'Faculty'],
-                    'dean'    => ['prefix' => 'D-', 'enum' => 'Dean'],
-                ];
-                if (!isset($roleMap[$role])) {
-                    throw new Exception('Unsupported role for employee ID generation');
-                }
-                $prefix = $roleMap[$role]['prefix'];
-                $enumRole = $roleMap[$role]['enum'];
-                $stmt = $pdo->prepare("SELECT MAX(CAST(SUBSTRING(employee_id, 3) AS UNSIGNED)) AS max_seq FROM employees WHERE role = ? AND employee_id LIKE CONCAT(?, '%')");
-                $stmt->execute([$enumRole, $prefix]);
-                $row = $stmt->fetch();
-                $next = (int)($row['max_seq'] ?? 0) + 1;
-                return sprintf('%s%03d', $prefix, $next);
+            // Shared helpers to allocate next Employee ID (FAC### / DEAN###) filling gaps first
+            $extractNumericFromId = function(string $id, string $prefix): ?int {
+                $pattern = '/^' . preg_quote($prefix, '/') . '0*(\\d+)$/i';
+                if (preg_match($pattern, $id, $m)) { return (int)$m[1]; }
+                return null;
             };
+
+            $collectUsedNumbers = function(PDO $pdo, string $role) use ($extractNumericFromId): array {
+                $prefix = ($role === 'faculty') ? 'FAC-' : 'DEAN-';
+                $table  = ($role === 'faculty') ? 'faculty' : 'deans';
+                $nums = [];
+                // Role tables
+                try {
+                    $stmt = $pdo->query("SELECT employee_id FROM $table");
+                    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                        $n = $extractNumericFromId((string)$row['employee_id'], $prefix);
+                        if ($n !== null) { $nums[$n] = true; }
+                    }
+                } catch (PDOException $e) { /* ignore */ }
+                // Users.username (username == employee_id for these roles)
+                try {
+                    $stmt = $pdo->prepare("SELECT username FROM users WHERE role = ? AND username LIKE ?");
+                    $stmt->execute([$role, $prefix.'%']);
+                    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                        $n = $extractNumericFromId((string)$row['username'], $prefix);
+                        if ($n !== null) { $nums[$n] = true; }
+                    }
+                } catch (PDOException $e) { /* ignore */ }
+                $keys = array_keys($nums); sort($keys, SORT_NUMERIC); return $keys;
+            };
+
+            $allocateNextId = function(PDO $pdo, string $role): array {
+                $prefix = ($role === 'faculty') ? 'FAC-' : 'DEAN-';
+                $pad = 3;
+                $used = $collectUsedNumbers($pdo, $role);
+                $candidate = 1; $i = 0; $len = count($used);
+                while ($i < $len) {
+                    if ($used[$i] === $candidate) { $candidate++; $i++; }
+                    elseif ($used[$i] < $candidate) { $i++; }
+                    else { break; }
+                }
+                $id = sprintf('%s%0'.(int)$pad.'d', $prefix, $candidate);
+                return [$id, $candidate, $prefix, $pad];
+            };
+
+            // Ensure shared sequence tracker exists BEFORE transaction (non-blocking if exists)
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS id_sequences (
+                    role ENUM('faculty','dean') PRIMARY KEY,
+                    last_num INT NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+            } catch (PDOException $e) { /* ignore */ }
 
             // Pre-generate IDs for roles that auto-derive username
             $pre_employee_id = null;
@@ -80,7 +116,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $attemptsGen = 0;
                 while (true) {
                     try {
-                        $pre_employee_id = $generateEmployeeId($pdo, $role);
+                        list($pre_employee_id, $num, $prefix, $pad) = $allocateNextId($pdo, $role);
+                        // Check for collisions and advance if needed
+                        while (true) {
+                            $chk = $pdo->prepare('SELECT COUNT(*) c FROM users WHERE username = ?');
+                            $chk->execute([$pre_employee_id]);
+                            $userDup = ($chk->fetch()['c'] ?? 0) > 0;
+                            if ($role === 'faculty') {
+                                $chk2 = $pdo->prepare('SELECT COUNT(*) c FROM faculty WHERE employee_id = ?');
+                            } else {
+                                $chk2 = $pdo->prepare('SELECT COUNT(*) c FROM deans WHERE employee_id = ?');
+                            }
+                            $chk2->execute([$pre_employee_id]);
+                            $roleDup = ($chk2->fetch()['c'] ?? 0) > 0;
+                            if (!$userDup && !$roleDup) { break; }
+                            $num++; $pre_employee_id = sprintf('%s%0'.(int)$pad.'d', $prefix, $num);
+                        }
+                        // Update shared sequence tracker (best-effort)
+                        try {
+                            $pdo->prepare("INSERT INTO id_sequences (role, last_num) VALUES (?, ?) ON DUPLICATE KEY UPDATE last_num = GREATEST(last_num, VALUES(last_num))")
+                                ->execute([$role, $num]);
+                        } catch (PDOException $e) { /* ignore */ }
                         break;
                     } catch (Exception $eGen) {
                         if ($attemptsGen < 2) { $attemptsGen++; continue; }
