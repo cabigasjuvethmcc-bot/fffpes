@@ -186,7 +186,8 @@ $tech_programs = $PROGRAMS_BY_DEPT['Technology'] ?? [];
             <h2>Technology Admin</h2>
             <a href="../../department_dashboard.php"><i class="fas fa-gauge-high"></i> Dashboard</a>
             <a href="enrollment.php"><i class="fas fa-user-plus"></i> Enroll Student</a>
-            <a href="student_management.php"><i class="fas fa-users-cog"></i> Manage Students</a>
+            <a href="../../bulk_upload.php"><i class="fas fa-file-upload"></i> Bulk Upload</a>
+            <a href="student_management.php" class="active"><i class="fas fa-users-cog"></i> Manage Students</a>
             <a href="../../reports/department_report.php?dept=Technology" target="_blank"><i class="fas fa-chart-bar"></i> Department Report</a>
             <button class="logout-btn" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
         </div>
@@ -238,6 +239,26 @@ $tech_programs = $PROGRAMS_BY_DEPT['Technology'] ?? [];
                         <i class="fas fa-laptop-code"></i>
                     </div>
                 </div>
+
+                <!-- Search & Filters -->
+                <div class="tech-table-header" style="display:grid; gap:10px; border-top:1px solid #e5e7eb;">
+                    <div style="display:grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap:10px;">
+                        <input id="filter-id" class="tech-input" type="text" placeholder="Search Student ID">
+                        <input id="filter-name" class="tech-input" type="text" placeholder="Search Name">
+                        <input id="filter-program" class="tech-input" type="text" placeholder="Search Program">
+                        <select id="filter-year" class="tech-input">
+                            <option value="">All Year Levels</option>
+                            <option value="1st Year">1st Year</option>
+                            <option value="2nd Year">2nd Year</option>
+                            <option value="3rd Year">3rd Year</option>
+                            <option value="4th Year">4th Year</option>
+                            <option value="Graduate">Graduate</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <button id="filters-clear" class="tech-btn" type="button" style="background:#6b7280;">Clear</button>
+                    </div>
+                </div>
                 
                 <?php if (empty($students)): ?>
                     <div style="padding: 60px; text-align: center; color: #666;">
@@ -251,7 +272,7 @@ $tech_programs = $PROGRAMS_BY_DEPT['Technology'] ?? [];
                     </div>
                 <?php else: ?>
                     <div style="overflow-x: auto;">
-                        <table class="tech-table" style="width: 100%; border-collapse: collapse;">
+                        <table id="students-table" class="tech-table" style="width: 100%; border-collapse: collapse;">
                             <thead>
                                 <tr>
                                     <th>Student ID</th>
@@ -264,7 +285,7 @@ $tech_programs = $PROGRAMS_BY_DEPT['Technology'] ?? [];
                                     <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="students-tbody">
                                 <?php foreach ($students as $student): ?>
                                     <tr id="student-<?php echo $student['id']; ?>">
                                         <td><strong><?php echo htmlspecialchars($student['student_id'] ?? 'N/A'); ?></strong></td>
@@ -298,6 +319,22 @@ $tech_programs = $PROGRAMS_BY_DEPT['Technology'] ?? [];
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+                        <!-- Pagination -->
+                        <div id="pagination" style="display:flex; justify-content: space-between; align-items:center; padding:12px 0;">
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <label for="page-size" style="font-size:12px; color:#6b7280;">Rows per page</label>
+                                <select id="page-size" class="tech-input" style="max-width:100px;">
+                                    <option value="10">10</option>
+                                    <option value="20">20</option>
+                                    <option value="50">50</option>
+                                </select>
+                                <span id="page-info" style="font-size:12px; color:#6b7280;"></span>
+                            </div>
+                            <div style="display:flex; gap:6px;">
+                                <button type="button" class="tech-btn" id="prev-page" style="padding:6px 10px;">Prev</button>
+                                <button type="button" class="tech-btn" id="next-page" style="padding:6px 10px;">Next</button>
+                            </div>
+                        </div>
                     </div>
                 <?php endif; ?>
             </div>
@@ -547,6 +584,86 @@ $tech_programs = $PROGRAMS_BY_DEPT['Technology'] ?? [];
                 closeEditModal();
             }
         });
+
+        // Search, filter, pagination
+        (function(){
+            const tbody = document.getElementById('students-tbody');
+            if (!tbody) return;
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const qId = document.getElementById('filter-id');
+            const qName = document.getElementById('filter-name');
+            const qProg = document.getElementById('filter-program');
+            const qYear = document.getElementById('filter-year');
+            const clearBtn = document.getElementById('filters-clear');
+            const pageSizeSel = document.getElementById('page-size');
+            const prevBtn = document.getElementById('prev-page');
+            const nextBtn = document.getElementById('next-page');
+            const pageInfo = document.getElementById('page-info');
+
+            let filtered = rows.slice();
+            let current = 1;
+
+            function applyFilters(){
+                const idv = (qId?.value || '').toLowerCase();
+                const namev = (qName?.value || '').toLowerCase();
+                const prov = (qProg?.value || '').toLowerCase();
+                const yearv = (qYear?.value || '').toLowerCase();
+                filtered = rows.filter(tr => {
+                    const cells = tr.getElementsByTagName('td');
+                    const sid = (cells[0]?.innerText || '').toLowerCase();
+                    const fname = (cells[1]?.innerText || '').toLowerCase();
+                    const prog = (cells[5]?.innerText || '').toLowerCase();
+                    const year = (cells[4]?.innerText || '').toLowerCase();
+                    if (idv && !sid.includes(idv)) return false;
+                    if (namev && !fname.includes(namev)) return false;
+                    if (prov && !prog.includes(prov)) return false;
+                    if (yearv && !year.includes(yearv)) return false;
+                    return true;
+                });
+                current = 1;
+                render();
+            }
+
+            function getPageSize(){
+                const n = parseInt(pageSizeSel?.value || '10', 10);
+                return isNaN(n) || n <= 0 ? 10 : n;
+            }
+
+            function render(){
+                const size = getPageSize();
+                const total = filtered.length;
+                const pages = Math.max(1, Math.ceil(total / size));
+                if (current > pages) current = pages;
+                const start = (current - 1) * size;
+                const end = start + size;
+                // hide all first
+                rows.forEach(tr => tr.style.display = 'none');
+                filtered.slice(start, end).forEach(tr => tr.style.display = '');
+                if (pageInfo) pageInfo.textContent = `Showing ${Math.min(total, start+1)}-${Math.min(total, end)} of ${total}`;
+                if (prevBtn) prevBtn.disabled = current <= 1;
+                if (nextBtn) nextBtn.disabled = current >= pages;
+            }
+
+            function clearFilters(){
+                if (qId) qId.value = '';
+                if (qName) qName.value = '';
+                if (qProg) qProg.value = '';
+                if (qYear) qYear.value = '';
+                applyFilters();
+            }
+
+            qId && qId.addEventListener('input', applyFilters);
+            qName && qName.addEventListener('input', applyFilters);
+            qProg && qProg.addEventListener('input', applyFilters);
+            qYear && qYear.addEventListener('change', applyFilters);
+            pageSizeSel && pageSizeSel.addEventListener('change', render);
+            clearBtn && clearBtn.addEventListener('click', clearFilters);
+            prevBtn && prevBtn.addEventListener('click', ()=>{ if (current>1){ current--; render(); } });
+            nextBtn && nextBtn.addEventListener('click', ()=>{ current++; render(); });
+
+            // initial
+            applyFilters();
+        })();
     </script>
 </body>
 </html>

@@ -166,12 +166,30 @@ $education_programs = $PROGRAMS_BY_DEPT['Education'] ?? [];
     <link rel="stylesheet" href="education-theme.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
+        /* Match Bulk Upload sidebar theme for SOE */
+        :root { --primary-color: #1e3a8a; --secondary-color: #3b82f6; }
+        .dashboard .sidebar { width: 200px; background: #ffffff; color: #374151; border-right: 1px solid #e5e7eb; }
+        .dashboard .sidebar a { color: #4b5563; }
+        .dashboard .sidebar a:hover { background: #f3f4f6; color: #111827; }
+        .dashboard .main-content { background: #f5f7fb; }
         .header-media { position: absolute; right: 20px; top: 20px; width: 110px; height: 110px; opacity: 0.18; pointer-events: none; }
         .header-media img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 6px 16px rgba(0,0,0,0.2)); }
         @media (max-width: 768px) { .header-media { display: none; } }
     </style>
 </head>
 <body>
+    <div class="dashboard">
+        <!-- Department Sidebar -->
+        <div class="sidebar">
+            <h2>Education Admin</h2>
+            <a href="../../department_dashboard.php"><i class="fas fa-gauge-high"></i> Dashboard</a>
+            <a href="enrollment.php"><i class="fas fa-user-plus"></i> Enroll Student</a>
+            <a href="../../bulk_upload.php"><i class="fas fa-file-upload"></i> Bulk Upload</a>
+            <a href="student_management.php" class="active"><i class="fas fa-users-cog"></i> Manage Students</a>
+            <a href="../../reports/department_report.php?dept=Education" target="_blank"><i class="fas fa-chart-bar"></i> Department Report</a>
+            <button class="logout-btn" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+        </div>
+        <div class="main-content">
     <div class="education-dashboard">
         <div class="dashboard-container" style="max-width: 1600px; margin: 0 auto; padding: 20px;">
             
@@ -296,6 +314,8 @@ $education_programs = $PROGRAMS_BY_DEPT['Education'] ?? [];
             </div>
         </div>
     </div>
+        </div>
+    </div>
 
     <!-- Edit Student Modal -->
     <div id="editModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
@@ -364,6 +384,14 @@ $education_programs = $PROGRAMS_BY_DEPT['Education'] ?? [];
             </form>
         </div>
     </div>
+
+    <script>
+        function logout() {
+            fetch('../../auth.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'action=logout' })
+              .then(r => r.json()).then(d => { if (d.success) { window.location.href = d.redirect; } else { window.location.href='../../index.php'; } })
+              .catch(() => window.location.href='../../index.php');
+        }
+    </script>
 
     <script>
         // Animation delays

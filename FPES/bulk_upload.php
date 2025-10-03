@@ -16,6 +16,7 @@ $embedded = isset($_GET['embed']) && $_GET['embed'] == '1';
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bulk Upload Users</title>
   <link rel="stylesheet" href="styles.css">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <style>
     .container { max-width: 1100px; margin: 24px auto; background:#fff; border-radius:16px; padding:28px; box-shadow: 0 12px 30px rgba(0,0,0,.08); }
     .header { display:flex; gap:16px; justify-content:space-between; align-items:center; margin-bottom:20px; }
@@ -47,14 +48,43 @@ $embedded = isset($_GET['embed']) && $_GET['embed'] == '1';
       .header h1 { font-size: 1.4rem; }
     }
   </style>
+  <?php
+    // Department-specific theming for Department Admins
+    $deptCodes = ['Education' => 'SOE', 'Business' => 'SOB', 'Technology' => 'SOT'];
+    $deptColors = [
+      'Technology' => ['primary' => '#0ea5e9', 'secondary' => '#22d3ee', 'accent' => '#06b6d4'], // tech/modern
+      'Education'  => ['primary' => '#1e3a8a', 'secondary' => '#3b82f6', 'accent' => '#60a5fa'], // academic
+      'Business'   => ['primary' => '#0f766e', 'secondary' => '#10b981', 'accent' => '#34d399'], // professional
+    ];
+    $deptLabel = $deptCodes[$adminDept] ?? '';
+    if (!$isSystemAdmin) {
+      $c = $deptColors[$adminDept] ?? $deptColors['Technology'];
+      echo '<style>
+        :root{ --primary-color: '.htmlspecialchars($c['primary']).'; --secondary-color: '.htmlspecialchars($c['secondary']).'; }
+        .sidebar h2{ color:#111827; }
+        .sidebar{ background:#ffffff; color:#374151; border-right:1px solid #e5e7eb; }
+        .sidebar a{ color:#4b5563; }
+        .sidebar a:hover{ background:#f3f4f6; color:#111827; }
+      </style>';
+    }
+  ?>
   <?php if (!$embedded): ?>
 </head>
 <body>
   <div class="dashboard">
     <div class="sidebar">
-      <h2>Admin</h2>
-      <a href="<?php echo $isSystemAdmin ? 'admin/admin.php' : 'department_dashboard.php'; ?>">Back to Dashboard</a>
-      <button class="logout-btn" onclick="logout()">Logout</button>
+      <h2><?php echo $isSystemAdmin ? 'Admin' : htmlspecialchars(($deptLabel ?: $adminDept).' Admin'); ?></h2>
+      <?php if ($isSystemAdmin): ?>
+        <a href="admin/admin.php"><i class="fas fa-gauge-high"></i> Back to Dashboard</a>
+        <button class="logout-btn" onclick="logout()">Logout</button>
+      <?php else: ?>
+        <a href="department_dashboard.php"><i class="fas fa-gauge-high"></i> Dashboard</a>
+        <a href="departments/<?php echo strtolower($adminDept); ?>/enrollment.php"><i class="fas fa-user-plus"></i> Enroll Student</a>
+        <a href="bulk_upload.php" class="active"><i class="fas fa-file-upload"></i> Bulk Upload</a>
+        <a href="departments/<?php echo strtolower($adminDept); ?>/student_management.php"><i class="fas fa-users-cog"></i> Manage Students</a>
+        <a href="reports/department_report.php?dept=<?php echo urlencode($adminDept); ?>" target="_blank"><i class="fas fa-chart-bar"></i> Department Report</a>
+        <button class="logout-btn" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+      <?php endif; ?>
     </div>
     <div class="main-content">
   <?php else: ?>
@@ -65,6 +95,17 @@ $embedded = isset($_GET['embed']) && $_GET['embed'] == '1';
       <div class="container">
         <div class="header">
           <h1>Bulk Upload Users</h1>
+          <?php if (!$isSystemAdmin): ?>
+            <span class="pill" style="background: rgba(107,114,128,.12); color:#111827; border:1px solid #e5e7eb;">
+              <?php if ($adminDept === 'Education'): ?>
+                <i class="fas fa-graduation-cap"></i> SOE Admin Portal
+              <?php elseif ($adminDept === 'Business'): ?>
+                <i class="fas fa-chart-line"></i> SOB Admin Portal
+              <?php else: ?>
+                <i class="fas fa-gear"></i> SOT Admin Portal
+              <?php endif; ?>
+            </span>
+          <?php endif; ?>
           <div class="toolbar">
             <button class="btn alt" onclick="downloadTemplate('student')">Student Template</button>
             <button class="btn alt" onclick="downloadTemplate('faculty')">Faculty Template</button>

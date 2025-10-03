@@ -39,9 +39,9 @@ try {
     $stmt = $pdo->prepare("SELECT u.*, f.employee_id, f.position, f.hire_date,
                            (SELECT COUNT(*) FROM evaluations WHERE faculty_id = u.id) as evaluation_count,
                            (SELECT AVG(overall_rating) FROM evaluations WHERE faculty_id = u.id AND status = 'submitted') as avg_rating,
-                           (SELECT GROUP_CONCAT(CONCAT(COALESCE(fs.subject_code, ''), CASE WHEN fs.subject_code IS NOT NULL AND fs.subject_code <> '' THEN ' - ' ELSE '' END, fs.subject_name) SEPARATOR ', ')
-                              FROM faculty_subjects fs
-                              WHERE fs.faculty_user_id = u.id) as subjects_assigned
+                           (SELECT GROUP_CONCAT(DISTINCT CONCAT(COALESCE(sfs.subject_code, ''), CASE WHEN sfs.subject_code IS NOT NULL AND sfs.subject_code <> '' THEN ' - ' ELSE '' END, sfs.subject_name) SEPARATOR ', ')
+                              FROM student_faculty_subjects sfs
+                              WHERE sfs.faculty_user_id = u.id) as subjects_assigned
                            FROM users u 
                            LEFT JOIN faculty f ON u.id = f.user_id 
                            WHERE u.role = 'faculty' AND u.department = ? 

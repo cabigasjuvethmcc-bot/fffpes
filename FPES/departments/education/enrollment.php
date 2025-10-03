@@ -218,6 +218,7 @@ $education_programs = $PROGRAMS_BY_DEPT['Education'] ?? [];
             <h2>Education Admin</h2>
             <a href="../../department_dashboard.php"><i class="fas fa-gauge-high"></i> Dashboard</a>
             <a href="enrollment.php"><i class="fas fa-user-plus"></i> Enroll Student</a>
+            <a href="../../bulk_upload.php"><i class="fas fa-file-upload"></i> Bulk Upload</a>
             <a href="student_management.php"><i class="fas fa-users-cog"></i> Manage Students</a>
             <a href="../../reports/department_report.php?dept=Education" target="_blank"><i class="fas fa-chart-bar"></i> Department Report</a>
             <button class="logout-btn" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>

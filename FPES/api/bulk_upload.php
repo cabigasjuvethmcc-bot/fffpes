@@ -231,14 +231,17 @@ try {
   }
   if (empty($headers)) { json_fail('File appears empty or unreadable'); }
 
-  // Ensure role-specific required columns (new minimal templates)
-  $required = [
-    // Headers normalized to lowercase by parser
-    'student' => ['firstname','lastname','gender','course','yearlevel'],
-    'faculty' => ['firstname','lastname','department'],
-    'dean'    => ['firstname','lastname','department'],
-  ];
-  $req = $required[$role];
+  // Ensure role-specific required columns (dynamic by admin scope)
+  // Headers normalized to lowercase by parser
+  $required = [];
+  if ($role === 'student') {
+    // For students, we no longer require 'course' because program is auto-set from department context
+    $required = ['firstname','lastname','gender','yearlevel'];
+  } elseif ($role === 'faculty' || $role === 'dean') {
+    // System Admin must provide department; Department Admin's department is auto-assigned
+    $required = $isSystemAdmin ? ['firstname','lastname','department'] : ['firstname','lastname'];
+  }
+  $req = $required;
   $missing = array_diff($req, $headers);
   if (!empty($missing)) { json_fail('Missing required columns: ' . implode(', ', $missing)); }
 
@@ -287,11 +290,21 @@ try {
     foreach ($req as $col) { if ($col !== 'password' && empty($row[$col])) { $reason = 'Missing field: ' . $col; break; } }
 
     // Determine department
-    $rowDept = $applyDept;
-    if ($role === 'faculty' || $role === 'dean') { $rowDept = $row['department'] ?? $applyDept; }
+    // For Department Admins: force to their department regardless of CSV content
+    // For System Admins: allow per-row Department (for faculty/dean), students may have empty and rely on applyDept
+    if ($isSystemAdmin) {
+      if ($role === 'faculty' || $role === 'dean') {
+        $rowDept = trim($row['department'] ?? $applyDept);
+      } else { // student
+        $rowDept = $applyDept; // may be empty; will still map program by department if provided
+      }
+    } else {
+      $rowDept = $adminDept;
+    }
 
-    if (!$isSystemAdmin) {
-      if (strcasecmp($rowDept, $adminDept) !== 0) { $reason = 'Department mismatch'; }
+    // If system admin processing faculty/dean, ensure department is present
+    if ($isSystemAdmin && ($role === 'faculty' || $role === 'dean')) {
+      if ($rowDept === '') { $reason = 'Missing field: department'; }
     }
 
     if ($reason !== '') { $skipped++; $errors[] = [$index+2, $reason]; continue; }
@@ -334,8 +347,18 @@ try {
         $insertUser = $pdo->prepare('INSERT INTO users (username, password, role, full_name, email, department, must_change_password) VALUES (?,?,?,?,?,?,?)');
         $insertUser->execute([$username, $hash, $role, $fullName, $emailVal, $rowDept, $mustChange]);
         $userId = (int)$pdo->lastInsertId();
-
-        $program = $row['course'];
+        // Auto-assign program by department context, ignoring CSV content
+        $deptToProgram = [
+          'Education' => 'EDUCATION',
+          'Business' => 'BUSINESS',
+          'Technology' => 'TECHNOLOGY',
+        ];
+        $program = $deptToProgram[$rowDept] ?? ($deptToProgram[ucfirst(strtolower($rowDept))] ?? '');
+        if ($program === '') {
+          // If department not recognized or empty, require it (system admin should set Apply Department)
+          if ($isSystemAdmin) { throw new Exception('Department not specified for student (set Apply Department)'); }
+          // For dept admins, this should not happen since $rowDept is forced
+        }
         $yr = $row['yearlevel'];
         $stmt = $pdo->prepare('INSERT INTO students (user_id, student_id, year_level, program) VALUES (?,?,?,?)');
         $stmt->execute([$userId, $studentId, $yr, $program]);
