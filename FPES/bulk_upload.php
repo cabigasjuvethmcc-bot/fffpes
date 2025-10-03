@@ -214,9 +214,12 @@ $embedded = isset($_GET['embed']) && $_GET['embed'] == '1';
           box.innerHTML = `
             <strong>Upload Complete</strong><br/>
             ${data.summary}<br/>
-            <div style="margin-top:8px;">
+            <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
               ${data.error_report ? `<a class="btn alt" href="${data.error_report}" target="_blank">Download Error Report</a>` : ''}
-            </div>`;
+              ${data.credentials_report ? `<a class="btn" href="${data.credentials_report}" target="_blank" title="Contains temporary credentials. Handle securely.">Download Temporary Credentials (CSV)</a>` : ''}
+            </div>
+            ${typeof data.provided_passwords !== 'undefined' ? `<div class="hint" style="margin-top:6px;">Passwords: <strong>${data.provided_passwords}</strong> provided, <strong>${data.generated_passwords}</strong> generated.</div>` : ''}
+          `;
         } else {
           box.className = 'result error';
           box.innerHTML = `<strong>Upload Failed</strong><br/>${data.message || 'An error occurred.'}`;

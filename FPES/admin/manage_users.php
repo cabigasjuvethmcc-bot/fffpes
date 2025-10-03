@@ -34,12 +34,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             // For Students, username is auto-set to Student ID;
             // For Faculty/Dean, username will be auto-set to Employee ID.
+            // Password is optional for these roles and will default to 'password123' if left blank.
             if ($role === 'student' || $role === 'faculty' || $role === 'dean') {
-                if (!$password || !$role || !$full_name || !$department) {
+                if (!$role || !$full_name || !$department) {
                     throw new Exception('All required fields must be filled');
                 }
             } else {
-                // Admins still require a manual username
+                // Admins still require a manual username and explicit password
                 if (!$username || !$password || !$role || !$full_name || !$department) {
                     throw new Exception('All required fields must be filled');
                 }
@@ -161,6 +162,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Email is required for Faculty and Dean');
             }
 
+            // Default password for Students/Faculty/Deans if left blank
+            if (in_array($role, ['student','faculty','dean'], true) && ($password === '' || $password === null)) {
+                $password = 'password123';
+            }
             // Hash password
             $hashed_password = password_hash($password, PASSWORD_DEFAULT);
 

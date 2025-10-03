@@ -12,19 +12,59 @@ function json_fail($message) {
 
 function normalize_header($h) { return strtolower(trim($h)); }
 
+// Password policy: at least 8 chars, include letters and numbers
+function is_password_valid($pw) {
+  if (strlen($pw) < 8) return false;
+  if (!preg_match('/[A-Za-z]/', $pw)) return false;
+  if (!preg_match('/\d/', $pw)) return false;
+  return true;
+}
+
+function generate_temp_password($length = 10) {
+  $letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  $numbers = '0123456789';
+  $all = $letters . $numbers;
+  $pw = '';
+  // ensure at least one letter and one number
+  $pw .= $letters[random_int(0, strlen($letters)-1)];
+  $pw .= $numbers[random_int(0, strlen($numbers)-1)];
+  for ($i = 2; $i < $length; $i++) {
+    $pw .= $all[random_int(0, strlen($all)-1)];
+  }
+  // shuffle
+  return str_shuffle($pw);
+}
+
 function read_csv_rows($tmpPath) {
   $rows = [];
   if (($handle = fopen($tmpPath, 'r')) !== false) {
-    $headers = fgetcsv($handle);
-    if ($headers === false) { return [[], []]; }
-    $map = array_map('normalize_header', $headers);
+    $headers = null;
+    // Find the header row: skip notes and blanks; look for a row containing 'firstname'
+    while (($line = fgetcsv($handle)) !== false) {
+      if ($line === null) { continue; }
+      // Trim values
+      $trimmed = array_map(function($v){ return strtolower(trim((string)$v)); }, $line);
+      // Skip comment/note lines that start with '#'
+      if (isset($trimmed[0]) && strlen($trimmed[0]) > 0 && $trimmed[0][0] === '#') { continue; }
+      // Skip blank-only lines
+      $allBlank = true; foreach ($trimmed as $t) { if ($t !== '') { $allBlank = false; break; } }
+      if ($allBlank) { continue; }
+      // Header candidate
+      if (in_array('firstname', $trimmed, true)) {
+        $headers = array_map('normalize_header', $line);
+        break;
+      }
+      // If not a header, continue scanning
+    }
+    if ($headers === null) { fclose($handle); return [[], []]; }
+    // Read data rows
     while (($data = fgetcsv($handle)) !== false) {
       $row = [];
-      foreach ($map as $i => $key) { $row[$key] = $data[$i] ?? null; }
+      foreach ($headers as $i => $key) { $row[$key] = $data[$i] ?? null; }
       $rows[] = $row;
     }
     fclose($handle);
-    return [$map, $rows];
+    return [$headers, $rows];
   }
   return [[], []];
 }
@@ -217,6 +257,8 @@ try {
 
   $pdo->beginTransaction();
   $ok = 0; $skipped = 0; $errors = [];
+  $providedPwCount = 0; $generatedPwCount = 0;
+  $credentials = []; // [username, role, full_name, department, initial_password, source]
   $summaryData = [
     'student' => ['male' => 0, 'female' => 0, 'male_first' => null, 'male_last' => null, 'female_first' => null, 'female_last' => null],
     'faculty' => ['count' => 0, 'nums' => []],
@@ -258,9 +300,19 @@ try {
       // Prepare role-specific IDs and username rules
       $fullName = trim(($row['firstname'] ?? '') . ' ' . ($row['lastname'] ?? ''));
       $emailVal = $row['email'] ?? null; // optional/unused in new templates
-      $passwordPlain = $row['password'] ?? '';
-      if ($passwordPlain === '') { $passwordPlain = 'changeme123'; }
-      $mustChange = ($passwordPlain === 'changeme123') ? 1 : 0;
+      $passwordPlain = trim($row['password'] ?? '');
+      $pwSource = 'generated';
+      if ($passwordPlain !== '') {
+        // Validate provided password
+        if (!is_password_valid($passwordPlain)) {
+          throw new Exception('Password does not meet policy (min 8 chars, include letters and numbers)');
+        }
+        $pwSource = 'provided';
+      } else {
+        // Default password when none provided
+        $passwordPlain = 'password123';
+      }
+      $mustChange = 1; // require change on first login for all bulk-created accounts
 
       if ($role === 'student') {
         $gender = strtolower($row['gender'] ?? '');
@@ -299,29 +351,66 @@ try {
           $summaryData['student']['female_last'] = $studentId;
         }
       } elseif ($role === 'faculty' || $role === 'dean') {
-        // Auto-generate next available ID (fill gaps first)
-        list($genId, $num, $prefix, $pad) = allocate_next_id($pdo, $role);
-
-        // Ensure uniqueness at time of allocation; if collision, iterate forward
-        while (true) {
-          // Check users
+        // Accept optional EmployeeID; otherwise auto-generate next available (fill gaps first)
+        $providedId = trim($row['employeeid'] ?? '');
+        if ($providedId !== '') {
+          // Basic format normalization: allow e.g., FAC-001 or DEAN-001 or raw
+          $prefix = ($role === 'faculty') ? 'FAC-' : 'DEAN-';
+          // If it doesn't start with prefix, prepend
+          if (stripos($providedId, $prefix) !== 0) {
+            // extract numeric part
+            if (preg_match('/^(\d+)$/', $providedId)) {
+              $providedId = $prefix . str_pad($providedId, 3, '0', STR_PAD_LEFT);
+            } else {
+              // Try to extract number part
+              if (preg_match('/(\d+)/', $providedId, $m)) {
+                $providedId = $prefix . str_pad($m[1], 3, '0', STR_PAD_LEFT);
+              } else {
+                throw new Exception('Invalid EmployeeID format');
+              }
+            }
+          }
+          $genId = strtoupper($providedId);
+          // Ensure uniqueness
           $stmt = $pdo->prepare('SELECT COUNT(*) c FROM users WHERE username = ?');
           $stmt->execute([$genId]);
-          $userDup = ($stmt->fetch()['c'] ?? 0) > 0;
-          // Check role table
+          if (($stmt->fetch()['c'] ?? 0) > 0) { throw new Exception('Duplicate EmployeeID/username'); }
           if ($role === 'faculty') {
             $stmt = $pdo->prepare('SELECT COUNT(*) c FROM faculty WHERE employee_id = ?');
           } else {
             $stmt = $pdo->prepare('SELECT COUNT(*) c FROM deans WHERE employee_id = ?');
           }
           $stmt->execute([$genId]);
-          $roleDup = ($stmt->fetch()['c'] ?? 0) > 0;
-          if (!$userDup && !$roleDup) { break; }
-          // advance to next number
-          $num++;
-          $genId = sprintf('%s%0'.(int)$pad.'d', $prefix, $num);
+          if (($stmt->fetch()['c'] ?? 0) > 0) { throw new Exception('Duplicate EmployeeID'); }
+          // Try to parse numeric part for summary range
+          $num = extract_numeric_from_id($genId, ($role === 'faculty') ? 'FAC-' : 'DEAN-') ?? null;
+          $prefix = ($role === 'faculty') ? 'FAC-' : 'DEAN-';
+          $pad = 3;
+        } else {
+          // Auto-generate
+          list($genId, $num, $prefix, $pad) = allocate_next_id($pdo, $role);
+          // Ensure uniqueness at time of allocation; if collision, iterate forward
+          while (true) {
+            // Check users
+            $stmt = $pdo->prepare('SELECT COUNT(*) c FROM users WHERE username = ?');
+            $stmt->execute([$genId]);
+            $userDup = ($stmt->fetch()['c'] ?? 0) > 0;
+            // Check role table
+            if ($role === 'faculty') {
+              $stmt = $pdo->prepare('SELECT COUNT(*) c FROM faculty WHERE employee_id = ?');
+            } else {
+              $stmt = $pdo->prepare('SELECT COUNT(*) c FROM deans WHERE employee_id = ?');
+            }
+            $stmt->execute([$genId]);
+            $roleDup = ($stmt->fetch()['c'] ?? 0) > 0;
+            if (!$userDup && !$roleDup) { break; }
+            // advance to next number
+            $num++;
+            $genId = sprintf('%s%0'.(int)$pad.'d', $prefix, $num);
+          }
         }
 
+        // Ensure uniqueness at time of allocation; if collision, iterate forward
         $username = $genId;
 
         $hash = password_hash($passwordPlain, PASSWORD_BCRYPT);
@@ -352,6 +441,10 @@ try {
         }
       }
 
+      // Track password counters and credentials listing
+      if ($pwSource === 'provided') { $providedPwCount++; } else { $generatedPwCount++; }
+      $credentials[] = [$username, $role, $fullName, $rowDept, $passwordPlain, $pwSource];
+
       $ok++;
     } catch (Exception $ex) {
       $skipped++;
@@ -380,8 +473,28 @@ try {
     $errorReportPath = $baseWeb . '/reports/' . $fname;
   }
 
+  // Credentials report for admins (sensitive)
+  $credentialsReportPath = '';
+  if ($ok > 0 && !empty($credentials)) {
+    $dir = __DIR__ . '/../reports';
+    if (!is_dir($dir)) { @mkdir($dir, 0777, true); }
+    $fname = 'bulk_credentials_' . date('Ymd_His') . '.csv';
+    $full = $dir . '/' . $fname;
+    $fp = fopen($full, 'w');
+    fputcsv($fp, ['username','role','full_name','department','initial_password','source']);
+    foreach ($credentials as $row) { fputcsv($fp, $row); }
+    fclose($fp);
+    $apiWebDir = rtrim(str_replace('\\','/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+    $baseWeb = rtrim(str_replace('\\','/', dirname($apiWebDir)), '/');
+    if ($baseWeb === '' || $baseWeb === '.') { $baseWeb = '/'; }
+    $credentialsReportPath = $baseWeb . '/reports/' . $fname;
+  }
+
   // Build detailed summary
   $summary = sprintf('%d records uploaded successfully, %d errors found', $ok, $skipped);
+  if ($ok > 0) {
+    $summary .= sprintf(' — Passwords: %d provided, %d generated', $providedPwCount, $generatedPwCount);
+  }
   if ($role === 'student') {
     $m = $summaryData['student']['male'];
     $f = $summaryData['student']['female'];
@@ -410,6 +523,9 @@ try {
     'success' => true,
     'summary' => $summary,
     'error_report' => $errorReportPath,
+    'credentials_report' => $credentialsReportPath,
+    'provided_passwords' => $providedPwCount,
+    'generated_passwords' => $generatedPwCount,
   ]);
   exit;
 } catch (Exception $e) {
