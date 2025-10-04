@@ -74,17 +74,8 @@ try {
     $terms = [];
 }
 
-// Get all faculty for directory
-$stmt = $pdo->prepare("SELECT f.id, u.full_name, u.department, f.position, f.employee_id, f.hire_date,
-                       COUNT(e.id) as evaluation_count, AVG(e.overall_rating) as avg_rating
-                       FROM faculty f
-                       JOIN users u ON f.user_id = u.id
-                       LEFT JOIN evaluations e ON f.id = e.faculty_id AND e.status = 'submitted'
-                       WHERE f.id != ?
-                       GROUP BY f.id, u.full_name, u.department, f.position, f.employee_id, f.hire_date
-                       ORDER BY u.full_name");
-$stmt->execute([$_SESSION['faculty_id']]);
-$all_faculty = $stmt->fetchAll();
+// Faculty directory removed from system; keep placeholder variable empty
+$all_faculty = [];
 
 // Get assigned subjects for this faculty (by users.id referenced from faculty.user_id)
 $subjects = [];
@@ -268,7 +259,6 @@ try {
             <a href="#" onclick="showSection('overview')">Overview</a>
             <!-- My Evaluations menu item removed -->
             <a href="#" onclick="showSection('analytics')">Performance Analytics</a>
-            <a href="#" onclick="showSection('directory')">Faculty Directory</a>
             <a href="#" onclick="showSection('profile')">Profile</a>
             <a href="#" onclick="showSection('self-evaluation')">Self-Evaluation</a>
             <a href="#" onclick="showSection('my-self-evaluations')">My Self-Evaluation</a>
@@ -412,7 +402,19 @@ try {
                             <label for="self_subject_select">Subject:</label>
                             <select id="self_subject_select" onchange="onSubjectChangeSelfEval(this)">
                                 <option value="">-- Select Subject --</option>
-                                <?php foreach ($subjects as $s): ?>
+                                <?php 
+                                    // Only show subjects that have not yet been self-evaluated for the active period
+                                    $visibleCount = 0; 
+                                    foreach ($subjects as $s): 
+                                        $code = trim((string)$s['subject_code']);
+                                        $name = trim((string)$s['subject_name']);
+                                        $key = ($code !== '' ? $code : 'NO_CODE') . '||' . mb_strtolower($name);
+                                        // If there is an active period and this subject is already evaluated, hide it
+                                        if ($activePeriod && !empty($self_eval_status[$key])) {
+                                            continue;
+                                        }
+                                        $visibleCount++;
+                                ?>
                                     <option 
                                         value="<?php echo htmlspecialchars($s['subject_code'] ?: $s['subject_name']); ?>"
                                         data-code="<?php echo htmlspecialchars($s['subject_code']); ?>"
@@ -420,6 +422,9 @@ try {
                                         <?php echo htmlspecialchars(($s['subject_code'] ? $s['subject_code'].' - ' : '').$s['subject_name']); ?>
                                     </option>
                                 <?php endforeach; ?>
+                                <?php if ($visibleCount === 0): ?>
+                                    <option value="" disabled>-- All assigned subjects are already evaluated for the current period --</option>
+                                <?php endif; ?>
                             </select>
                         </div>
                     </div>
@@ -688,80 +693,12 @@ try {
                 </div>
             </div>
 
-            <!-- Faculty Directory Section -->
-            <div id="directory-section" class="content-section" style="display: none;">
-                <h2>Faculty Directory</h2>
-                
-                <div class="search-container">
-                    <input type="text" id="faculty_directory_search" placeholder="Search faculty by name, department, or position..." onkeyup="filterFacultyDirectory()">
-                </div>
-                
-                <div class="faculty-directory">
-                    <table class="performance-table" id="faculty_directory_table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Department</th>
-                                <th>Position</th>
-                                <th>Employee ID</th>
-                                <th>Hire Date</th>
-                                <th>Evaluations</th>
-                                <th>Avg Rating</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($all_faculty as $colleague): ?>
-                                <tr>
-                                    <td><?php echo htmlspecialchars($colleague['full_name']); ?></td>
-                                    <td><?php echo htmlspecialchars($colleague['department']); ?></td>
-                                    <td><?php echo htmlspecialchars($colleague['position']); ?></td>
-                                    <td><?php echo htmlspecialchars($colleague['employee_id']); ?></td>
-                                    <td><?php echo $colleague['hire_date'] ? date('M j, Y', strtotime($colleague['hire_date'])) : 'N/A'; ?></td>
-                                    <td><?php echo $colleague['evaluation_count']; ?></td>
-                                    <td>
-                                        <?php if ($colleague['avg_rating']): ?>
-                                            <span class="rating-badge">
-                                                <?php echo number_format($colleague['avg_rating'], 2); ?>/5.0
-                                            </span>
-                                        <?php else: ?>
-                                            <span style="color: var(--secondary-color);">No evaluations</span>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            <!-- Faculty Directory Section removed -->
         </div>
     </div>
 
     <script>
-        // Faculty directory search functionality
-        function filterFacultyDirectory() {
-            const searchInput = document.getElementById('faculty_directory_search');
-            const table = document.getElementById('faculty_directory_table');
-            const searchTerm = searchInput.value.toLowerCase();
-            
-            if (!table) return;
-            
-            const rows = table.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
-            
-            for (let i = 0; i < rows.length; i++) {
-                const cells = rows[i].getElementsByTagName('td');
-                let shouldShow = false;
-                
-                // Search in name, department, and position columns (0, 1, 2)
-                for (let j = 0; j < 3; j++) {
-                    if (cells[j] && cells[j].textContent.toLowerCase().includes(searchTerm)) {
-                        shouldShow = true;
-                        break;
-                    }
-                }
-                
-                rows[i].style.display = shouldShow ? '' : 'none';
-            }
-        }
+        // Faculty directory feature removed
 
         // Navigation functions
         function showSection(sectionName) {

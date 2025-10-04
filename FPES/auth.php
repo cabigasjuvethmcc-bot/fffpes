@@ -23,6 +23,8 @@ if ($action === 'login') {
     
     try {
         // First try database authentication
+        // Recognize Department Admin as a distinct login choice, but records remain role='admin' in DB
+        $deptAdminList = ['Technology', 'Education', 'Business'];
         if ($role === 'student') {
             // Match by Student ID for students
             $stmt = $pdo->prepare("SELECT u.*, f.id as faculty_id, s.id as student_id 
@@ -48,14 +50,22 @@ if ($action === 'login') {
                                    INNER JOIN deans d ON u.id = d.user_id 
                                    WHERE d.employee_id = ? AND u.role = ?");
             $stmt->execute([$username, $role]);
-        } else {
-            // Admins keep using username
+        } elseif ($role === 'department_admin') {
+            // Department Admins are stored as role='admin' but must belong to an academic department
             $stmt = $pdo->prepare("SELECT u.*, f.id as faculty_id, s.id as student_id 
                                    FROM users u 
                                    LEFT JOIN faculty f ON u.id = f.user_id 
                                    LEFT JOIN students s ON u.id = s.user_id 
-                                   WHERE u.username = ? AND u.role = ?");
-            $stmt->execute([$username, $role]);
+                                   WHERE u.username = ? AND u.role = 'admin' AND u.department IN ('Technology','Education','Business')");
+            $stmt->execute([$username]);
+        } else {
+            // System Admins only: role='admin' and NOT an academic department
+            $stmt = $pdo->prepare("SELECT u.*, f.id as faculty_id, s.id as student_id 
+                                   FROM users u 
+                                   LEFT JOIN faculty f ON u.id = f.user_id 
+                                   LEFT JOIN students s ON u.id = s.user_id 
+                                   WHERE u.username = ? AND u.role = 'admin' AND (u.department NOT IN ('Technology','Education','Business') OR u.department IS NULL OR u.department = '')");
+            $stmt->execute([$username]);
         }
         $user = $stmt->fetch();
         
@@ -84,6 +94,13 @@ if ($action === 'login') {
             $redirect = 'dashboard.php';
             if (!empty($_SESSION['must_change_password'])) {
                 $redirect = 'force_change_password.php';
+            }
+            // Normalize session role for admins (department_admin logs in as admin but will be routed by department)
+            if ($role === 'department_admin') {
+                $_SESSION['role'] = 'admin';
+                $_SESSION['is_department_admin'] = 1;
+            } else {
+                unset($_SESSION['is_department_admin']);
             }
             echo json_encode([
                 'success' => true, 

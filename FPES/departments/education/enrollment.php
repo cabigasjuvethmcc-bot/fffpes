@@ -311,7 +311,6 @@ $education_programs = $PROGRAMS_BY_DEPT['Education'] ?? [];
                                     <option value="2nd Year">2nd Year</option>
                                     <option value="3rd Year">3rd Year</option>
                                     <option value="4th Year">4th Year</option>
-                                    <option value="Graduate">Graduate</option>
                                 </select>
                             </div>
                         </div>
@@ -419,9 +418,7 @@ $education_programs = $PROGRAMS_BY_DEPT['Education'] ?? [];
 
     <script>
         function logout() {
-            fetch('../../auth.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'action=logout' })
-              .then(r => r.json()).then(d => { if (d.success) { window.location.href = d.redirect; } else { window.location.href='../../index.php'; } })
-              .catch(() => window.location.href='../../index.php');
+            window.location.href = '../../auth.php?action=logout';
         }
         // Add animation delays for cards
         document.addEventListener('DOMContentLoaded', function() {

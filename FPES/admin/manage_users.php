@@ -86,7 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $keys = array_keys($nums); sort($keys, SORT_NUMERIC); return $keys;
             };
 
-            $allocateNextId = function(PDO $pdo, string $role): array {
+            $allocateNextId = function(PDO $pdo, string $role) use ($collectUsedNumbers): array {
                 $prefix = ($role === 'faculty') ? 'FAC-' : 'DEAN-';
                 $pad = 3;
                 $used = $collectUsedNumbers($pdo, $role);

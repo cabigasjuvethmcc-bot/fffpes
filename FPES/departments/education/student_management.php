@@ -246,6 +246,24 @@ $education_programs = $PROGRAMS_BY_DEPT['Education'] ?? [];
                         <i class="fas fa-graduation-cap"></i>
                     </div>
                 </div>
+                <!-- Search & Filters -->
+                <div class="education-table-header" style="display:grid; gap:10px; border-top:1px solid #e5e7eb;">
+                    <div style="display:grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap:10px;">
+                        <input id="filter-id" class="education-input" type="text" placeholder="Search Student ID">
+                        <input id="filter-name" class="education-input" type="text" placeholder="Search Name">
+                        <input id="filter-program" class="education-input" type="text" placeholder="Search Program">
+                        <select id="filter-year" class="education-input">
+                            <option value="">All Year Levels</option>
+                            <option value="1st Year">1st Year</option>
+                            <option value="2nd Year">2nd Year</option>
+                            <option value="3rd Year">3rd Year</option>
+                            <option value="4th Year">4th Year</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <button id="filters-clear" class="education-btn" type="button" style="background:#6b7280;">Clear</button>
+                    </div>
+                </div>
                 
                 <?php if (empty($students)): ?>
                     <div style="padding: 60px; text-align: center; color: #666;">
@@ -262,7 +280,7 @@ $education_programs = $PROGRAMS_BY_DEPT['Education'] ?? [];
                     </div>
                 <?php else: ?>
                     <div style="overflow-x: auto;">
-                        <table class="education-table" style="width: 100%; border-collapse: collapse;">
+                        <table id="students-table" class="education-table" style="width: 100%; border-collapse: collapse;">
                             <thead>
                                 <tr>
                                     <th>Student ID</th>
@@ -275,7 +293,7 @@ $education_programs = $PROGRAMS_BY_DEPT['Education'] ?? [];
                                     <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="students-tbody">
                                 <?php foreach ($students as $student): ?>
                                     <tr id="student-<?php echo $student['id']; ?>">
                                         <td><strong><?php echo htmlspecialchars($student['student_id'] ?? 'N/A'); ?></strong></td>
@@ -309,6 +327,22 @@ $education_programs = $PROGRAMS_BY_DEPT['Education'] ?? [];
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+                        <!-- Pagination -->
+                        <div id="pagination" style="display:flex; justify-content: space-between; align-items:center; padding:12px 0;">
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <label for="page-size" style="font-size:12px; color:#6b7280;">Rows per page</label>
+                                <select id="page-size" class="education-input" style="max-width:100px;">
+                                    <option value="10">10</option>
+                                    <option value="20">20</option>
+                                    <option value="50">50</option>
+                                </select>
+                                <span id="page-info" style="font-size:12px; color:#6b7280;"></span>
+                            </div>
+                            <div style="display:flex; gap:6px;">
+                                <button type="button" class="education-btn" id="prev-page" style="padding:6px 10px;">Prev</button>
+                                <button type="button" class="education-btn" id="next-page" style="padding:6px 10px;">Next</button>
+                            </div>
+                        </div>
                     </div>
                 <?php endif; ?>
             </div>
@@ -347,7 +381,6 @@ $education_programs = $PROGRAMS_BY_DEPT['Education'] ?? [];
                                 <option value="2nd Year">2nd Year</option>
                                 <option value="3rd Year">3rd Year</option>
                                 <option value="4th Year">4th Year</option>
-                                <option value="Graduate">Graduate</option>
                             </select>
                         </div>
                         <div>
@@ -387,9 +420,7 @@ $education_programs = $PROGRAMS_BY_DEPT['Education'] ?? [];
 
     <script>
         function logout() {
-            fetch('../../auth.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'action=logout' })
-              .then(r => r.json()).then(d => { if (d.success) { window.location.href = d.redirect; } else { window.location.href='../../index.php'; } })
-              .catch(() => window.location.href='../../index.php');
+            window.location.href = '../../auth.php?action=logout';
         }
     </script>
 
@@ -541,6 +572,92 @@ $education_programs = $PROGRAMS_BY_DEPT['Education'] ?? [];
                 closeEditModal();
             }
         });
+    </script>
+    <script>
+        // Search, filter, pagination
+        (function(){
+            const tbody = document.getElementById('students-tbody');
+            if (!tbody) return;
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const qId = document.getElementById('filter-id');
+            const qName = document.getElementById('filter-name');
+            const qProg = document.getElementById('filter-program');
+            const qYear = document.getElementById('filter-year');
+            const clearBtn = document.getElementById('filters-clear');
+            const pageSizeSel = document.getElementById('page-size');
+            const prevBtn = document.getElementById('prev-page');
+            const nextBtn = document.getElementById('next-page');
+            const pageInfo = document.getElementById('page-info');
+
+            let filtered = rows.slice();
+            let current = 1;
+
+            function applyFilters(){
+                const idv = (qId?.value || '').toLowerCase();
+                const namev = (qName?.value || '').toLowerCase();
+                const prov = (qProg?.value || '').toLowerCase();
+                const yearv = (qYear?.value || '').toLowerCase();
+                filtered = rows.filter(tr => {
+                    const cells = tr.getElementsByTagName('td');
+                    const sid = (cells[0]?.innerText || '').toLowerCase();
+                    const fname = (cells[1]?.innerText || '').toLowerCase();
+                    const prog = (cells[5]?.innerText || '').toLowerCase();
+                    const year = (cells[4]?.innerText || '').toLowerCase();
+                    if (idv && !sid.includes(idv)) return false;
+                    if (namev && !fname.includes(namev)) return false;
+                    if (prov && !prog.includes(prov)) return false;
+                    if (yearv && !year.includes(yearv)) return false;
+                    return true;
+                });
+                current = 1;
+                render();
+            }
+
+            function getPageSize(){
+                const n = parseInt(pageSizeSel?.value || '10', 10);
+                return isNaN(n) || n <= 0 ? 10 : n;
+            }
+
+            function render(){
+                const size = getPageSize();
+                const total = filtered.length;
+                const pages = Math.max(1, Math.ceil(total / size));
+                current = Math.max(1, Math.min(current, pages));
+
+                // Hide all
+                rows.forEach(r => { r.style.display = 'none'; });
+
+                // Show current page
+                const start = (current - 1) * size;
+                const end = Math.min(start + size, total);
+                for (let i = start; i < end; i++) {
+                    filtered[i].style.display = '';
+                }
+
+                if (pageInfo) pageInfo.textContent = `${total ? start + 1 : 0}-${end} of ${total}`;
+                if (prevBtn) prevBtn.disabled = current <= 1;
+                if (nextBtn) nextBtn.disabled = current >= pages;
+            }
+
+            // Attach listeners
+            qId?.addEventListener('input', applyFilters);
+            qName?.addEventListener('input', applyFilters);
+            qProg?.addEventListener('input', applyFilters);
+            qYear?.addEventListener('change', applyFilters);
+            pageSizeSel?.addEventListener('change', render);
+            clearBtn?.addEventListener('click', ()=>{
+                if (qId) qId.value = '';
+                if (qName) qName.value = '';
+                if (qProg) qProg.value = '';
+                if (qYear) qYear.value = '';
+                applyFilters();
+            });
+            prevBtn?.addEventListener('click', ()=>{ current = Math.max(1, current - 1); render(); });
+            nextBtn?.addEventListener('click', ()=>{ current = current + 1; render(); });
+
+            // Initial render
+            applyFilters();
+        })();
     </script>
 </body>
 </html>
