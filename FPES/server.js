@@ -7,7 +7,6 @@ app.use(cors());
 app.use(express.json());
 
 const evalFile = "./evaluations.json";
-const userFile = "./users.json";
 
 // --- Evaluations ---
 app.get("/evaluations", (req, res) => {
@@ -32,43 +31,7 @@ app.post("/evaluations", (req, res) => {
   });
 });
 
-// --- Users ---
-app.get("/users", (req, res) => {
-  fs.readFile(userFile, "utf8", (err, data) => {
-    if (err) return res.status(500).json({ error: "Failed to read users" });
-    res.json(JSON.parse(data || "[]"));
-  });
-});
-
-app.post("/users", (req, res) => {
-  const newUser = req.body;
-  fs.readFile(userFile, "utf8", (err, data) => {
-    if (err) return res.status(500).json({ error: "Failed to read file" });
-
-    let users = JSON.parse(data || "[]");
-    users.push(newUser);
-
-    fs.writeFile(userFile, JSON.stringify(users, null, 2), (err) => {
-      if (err) return res.status(500).json({ error: "Failed to save user" });
-      res.json({ success: true, message: "User added" });
-    });
-  });
-});
-
-app.delete("/users/:username", (req, res) => {
-  const username = req.params.username;
-  fs.readFile(userFile, "utf8", (err, data) => {
-    if (err) return res.status(500).json({ error: "Failed to read file" });
-
-    let users = JSON.parse(data || "[]");
-    users = users.filter(u => u.username !== username);
-
-    fs.writeFile(userFile, JSON.stringify(users, null, 2), (err) => {
-      if (err) return res.status(500).json({ error: "Failed to save file" });
-      res.json({ success: true, message: "User deleted" });
-    });
-  });
-});
+// Users endpoints removed: user management must be database-driven in PHP app
 
 app.listen(3000, () => {
   console.log("Server running on http://localhost:3000");

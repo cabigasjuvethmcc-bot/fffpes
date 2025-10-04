@@ -75,32 +75,6 @@ if ($action === 'login') {
             } elseif ($user['role'] === 'student') {
                 $_SESSION['student_id'] = $user['student_id'];
             }
-        } else {
-            // Fallback to JSON authentication for development
-            $users_json = file_get_contents('users.json');
-            $users = json_decode($users_json, true);
-            
-            foreach ($users as $json_user) {
-                // Handle both 'admin' and 'department_admin' role selections for department admins
-                $user_role_match = ($json_user['role'] === $role) || 
-                                  ($role === 'department_admin' && $json_user['role'] === 'admin' && 
-                                   in_array($json_user['department'] ?? '', ['Technology', 'Education', 'Business']));
-                
-                // For students in JSON fallback, treat username as their student identifier
-                $json_identifier = $json_user['username'];
-                if ($json_identifier === $username && 
-                    $user_role_match && 
-                    $json_user['password'] === $password) {
-                    
-                    $authenticated = true;
-                    $_SESSION['user_id'] = 999; // Temporary ID for JSON users
-                    $_SESSION['username'] = $json_user['username'];
-                    $_SESSION['role'] = $json_user['role'];
-                    $_SESSION['full_name'] = $json_user['username']; // Use username as fallback
-                    $_SESSION['department'] = $json_user['department'] ?? '';
-                    break;
-                }
-            }
         }
         
         if ($authenticated) {
